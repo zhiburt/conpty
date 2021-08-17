@@ -7,11 +7,8 @@ fn main() {
 
     let mut buf = [0; 300];
 
-    let n = proc.read(&mut buf).unwrap();
-    println!("{:?}", &buf[..n]);
-    println!("{:?}", String::from_utf8_lossy(&buf[..n]));
+    proc.wait().unwrap();
 
     let n = proc.read(&mut buf).unwrap();
-    println!("{:?}", &buf[..n]);
-    println!("{:?}", String::from_utf8_lossy(&buf[..n]));
+    println!("{}", String::from_utf8_lossy(&buf[..n]));
 }

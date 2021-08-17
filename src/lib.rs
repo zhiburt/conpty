@@ -18,8 +18,9 @@ use bindings::{
         CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
         UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT,
         LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
-        GetProcessId,
+        GetProcessId, GetExitCodeProcess,
     },
+    Windows::Win32::System::WindowsProgramming::INFINITE,
 };
 use std::fs::File;
 use std::io;
@@ -66,6 +67,17 @@ impl Proc {
 
     pub fn pid(&self) -> u32 {
         unsafe { GetProcessId(self._proc.hProcess) }
+    }
+
+    pub fn wait(&self) -> windows::Result<u32> {
+        unsafe {
+            WaitForSingleObject(self._proc.hProcess, INFINITE);
+
+            let mut code = 0;
+            GetExitCodeProcess(self._proc.hProcess, &mut code).ok()?;
+
+            Ok(code)
+        }
     }
 
     // fn send_line(&self, b: impl AsRef<str>) -> windows::Result<usize> {
