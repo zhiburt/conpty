@@ -18,6 +18,7 @@ use bindings::{
         CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
         UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT,
         LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
+        GetProcessId,
     },
 };
 use std::fs::File;
@@ -63,6 +64,10 @@ impl Proc {
         Ok(())
     }
 
+    pub fn pid(&self) -> u32 {
+        unsafe { GetProcessId(self._proc.hProcess) }
+    }
+
     // fn send_line(&self, b: impl AsRef<str>) -> windows::Result<usize> {
     //     let b = b.as_ref().as_bytes().as_mut_ptr();
     //     let buf_len = b.as_ref().as_bytes().len();
@@ -76,12 +81,12 @@ impl Proc {
 impl Drop for Proc {
     fn drop(&mut self) {
         unsafe {
-            // ClosePseudoConsole(self._console);
+            ClosePseudoConsole(self._console);
 
-            // CloseHandle(self._proc.hProcess);
-            // CloseHandle(self._proc.hThread);
+            CloseHandle(self._proc.hProcess);
+            CloseHandle(self._proc.hThread);
 
-            // DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
+            DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
 
             // Handles will be closes when File's will be dropped
             //
