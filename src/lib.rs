@@ -46,11 +46,6 @@ impl Proc {
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
         let proc = execProc(startup_info, cmd);
 
-        // wait a while just in case
-        unsafe {
-            WaitForSingleObject(proc.hThread, 10);
-        }
-
         let f_reader = unsafe { File::from_raw_handle(pty_reader.0 as _) };
         let f_writer = unsafe { File::from_raw_handle(pty_writer.0 as _) };
 
@@ -81,12 +76,12 @@ impl Proc {
 impl Drop for Proc {
     fn drop(&mut self) {
         unsafe {
-            ClosePseudoConsole(self._console);
+            // ClosePseudoConsole(self._console);
 
-            CloseHandle(self._proc.hProcess);
-            CloseHandle(self._proc.hThread);
+            // CloseHandle(self._proc.hProcess);
+            // CloseHandle(self._proc.hThread);
 
-            DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
+            // DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
 
             // Handles will be closes when File's will be dropped
             //
@@ -179,11 +174,20 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
 }
 
 fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCESS_INFORMATION {
+    let inter = std::env::var("COMSPEC").unwrap();
+    // The Unicode version of this function, CreateProcessW, can modify the contents of this string.
+    // Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a literal string).
+    // If this parameter is a constant string, the function may cause an access violation.
+    let mut cmd = command.as_ref().to_owned();
+    let cmd = format!("{} /C {:?}", inter, cmd);
+
+    println!("cmd {:?}", cmd);
+
     let mut proc_info = PROCESS_INFORMATION::default();
     unsafe {
         CreateProcessW(
             PWSTR::NULL,
-            command.as_ref(),
+            cmd,
             null_mut(),
             null_mut(),
             false,
