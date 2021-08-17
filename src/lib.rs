@@ -4,28 +4,26 @@ mod bindings {
     windows::include_bindings!();
 }
 
-use std::{mem::size_of, ptr::null_mut};
-use std::fs::File;
-use std::os::windows::io::FromRawHandle;
-use std::io;
 use bindings::{
     Windows::Win32::Foundation::CloseHandle,
+    Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::System::Console::{
-        ClosePseudoConsole, CreatePseudoConsole, ResizePseudoConsole, COORD, HPCON,
-        GetStdHandle, STD_OUTPUT_HANDLE, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
-        GetConsoleMode, SetConsoleMode, CONSOLE_MODE, GetConsoleScreenBufferInfo, CONSOLE_SCREEN_BUFFER_INFO,
+        ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
+        GetStdHandle, ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE,
+        CONSOLE_SCREEN_BUFFER_INFO, COORD, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
+        STD_OUTPUT_HANDLE,
     },
     Windows::Win32::System::Pipes::CreatePipe,
-    Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::System::Threading::{
-        STARTUPINFOEXW, UpdateProcThreadAttribute,
-        InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-        CreateProcessW,
-        EXTENDED_STARTUPINFO_PRESENT,
-        PROCESS_INFORMATION,
-        WaitForSingleObject,
+        CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
+        UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT,
+        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
     },
 };
+use std::fs::File;
+use std::io;
+use std::os::windows::io::FromRawHandle;
+use std::{mem::size_of, ptr::null_mut};
 use windows::HRESULT;
 
 pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Proc> {
@@ -44,12 +42,14 @@ impl Proc {
     pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Self> {
         enableVirtualTerminalSequenceProcessing()?;
         let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
-    
+
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
         let proc = execProc(startup_info, cmd);
-    
+
         // wait a while just in case
-        unsafe { WaitForSingleObject(proc.hThread, 10); }
+        unsafe {
+            WaitForSingleObject(proc.hThread, 10);
+        }
 
         let f_reader = unsafe { File::from_raw_handle(pty_reader.0 as _) };
         let f_writer = unsafe { File::from_raw_handle(pty_writer.0 as _) };
@@ -63,8 +63,8 @@ impl Proc {
         })
     }
 
-    pub fn resize(&self, x: i16,  y: i16) -> windows::Result<()> {
-        unsafe { ResizePseudoConsole(self._console.clone(), COORD {X: x, Y: y},)? };
+    pub fn resize(&self, x: i16, y: i16) -> windows::Result<()> {
+        unsafe { ResizePseudoConsole(self._console.clone(), COORD { X: x, Y: y })? };
         Ok(())
     }
 
@@ -80,7 +80,9 @@ impl Proc {
 
 impl Drop for Proc {
     fn drop(&mut self) {
-        unsafe { ClosePseudoConsole(self._console) };
+        unsafe {
+            ClosePseudoConsole(self._console);
+        }
     }
 }
 
@@ -97,32 +99,36 @@ fn enableVirtualTerminalSequenceProcessing() -> windows::Result<()> {
 }
 
 fn createPseudoConsole() -> windows::Result<(HPCON, HANDLE, HANDLE)> {
-    let (pty_in, con_writer) = pipe()?; 
-    let (con_reader , pty_out) = pipe()?; 
+    let (pty_in, con_writer) = pipe()?;
+    let (con_reader, pty_out) = pipe()?;
 
     let size = inhirentConsoleSize()?;
 
-    let console = unsafe { CreatePseudoConsole(size,pty_in, pty_out, 0)? };
+    let console = unsafe { CreatePseudoConsole(size, pty_in, pty_out, 0)? };
 
     // Note: We can close the handles to the PTY-end of the pipes here
-	// because the handles are dup'ed into the ConHost and will be released
-	// when the ConPTY is destroyed.
-	unsafe { CloseHandle(pty_in); }
-	unsafe { CloseHandle(pty_out); }
+    // because the handles are dup'ed into the ConHost and will be released
+    // when the ConPTY is destroyed.
+    unsafe {
+        CloseHandle(pty_in);
+    }
+    unsafe {
+        CloseHandle(pty_out);
+    }
 
     Ok((console, con_reader, con_writer))
 }
 
 fn inhirentConsoleSize() -> windows::Result<COORD> {
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
-    unsafe { 
+    unsafe {
         let stdout_h = GetStdHandle(STD_OUTPUT_HANDLE);
         GetConsoleScreenBufferInfo(stdout_h, &mut info).ok()?;
     };
 
-    let mut size = COORD {X: 24, Y: 80};
-    size.X = info.srWindow.Right - info.srWindow.Left + 1; 
-    size.Y = info.srWindow.Bottom - info.srWindow.Top + 1; 
+    let mut size = COORD { X: 24, Y: 80 };
+    size.X = info.srWindow.Right - info.srWindow.Left + 1;
+    size.Y = info.srWindow.Bottom - info.srWindow.Top + 1;
 
     Ok(size)
 }
@@ -135,7 +141,9 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
 
     let mut size: usize = 0;
-    let res = unsafe { InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut()), 1, 0, &mut size) };
+    let res = unsafe {
+        InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut()), 1, 0, &mut size)
+    };
     if res.as_bool() || size == 0 {
         return Err(windows::Error::new(HRESULT::from_thread(), ""));
     }
@@ -146,40 +154,45 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     unsafe {
         InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &mut size).ok()?;
         UpdateProcThreadAttribute(
-            siEx.lpAttributeList, 
+            siEx.lpAttributeList,
             0,
             PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
             hPC.0 as _,
             size_of::<HPCON>(),
             null_mut(),
-            null_mut()
-        ).ok()?;
+            null_mut(),
+        )
+        .ok()?;
     }
 
     Ok(siEx)
 }
 
 fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCESS_INFORMATION {
-    let mut proc_info = PROCESS_INFORMATION::default(); 
-    unsafe { CreateProcessW(
-        PWSTR::NULL,
-        command.as_ref(),
-        null_mut(),
-        null_mut(),
-        false,
-        EXTENDED_STARTUPINFO_PRESENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
-        null_mut(),
-        PWSTR::NULL,
-        &mut startup_info.StartupInfo,
-        &mut proc_info,
-    ).ok().unwrap() };
+    let mut proc_info = PROCESS_INFORMATION::default();
+    unsafe {
+        CreateProcessW(
+            PWSTR::NULL,
+            command.as_ref(),
+            null_mut(),
+            null_mut(),
+            false,
+            EXTENDED_STARTUPINFO_PRESENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
+            null_mut(),
+            PWSTR::NULL,
+            &mut startup_info.StartupInfo,
+            &mut proc_info,
+        )
+        .ok()
+        .unwrap()
+    };
 
     proc_info
 }
 
 fn pipe() -> windows::Result<(HANDLE, HANDLE)> {
-    let mut p_in = HANDLE::default(); 
-    let mut p_out = HANDLE::default(); 
+    let mut p_in = HANDLE::default();
+    let mut p_out = HANDLE::default();
     unsafe { CreatePipe(&mut p_in, &mut p_out, std::ptr::null_mut(), 0).ok()? };
 
     Ok((p_in, p_out))
