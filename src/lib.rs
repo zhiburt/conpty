@@ -82,6 +82,16 @@ impl Drop for Proc {
     fn drop(&mut self) {
         unsafe {
             ClosePseudoConsole(self._console);
+
+            CloseHandle(self._proc.hProcess);
+            CloseHandle(self._proc.hThread);
+
+            DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
+
+            // Handles will be closes when File's will be dropped
+            //
+            // CloseHandle(hPipeOut);
+            // CloseHandle(hPipeOut);
         }
     }
 }
