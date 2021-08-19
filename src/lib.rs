@@ -5,7 +5,7 @@ mod bindings {
 }
 
 use bindings::{
-    Windows::Win32::Foundation::CloseHandle,
+    Windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
     Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
@@ -21,6 +21,12 @@ use bindings::{
         GetProcessId, GetExitCodeProcess, CREATE_UNICODE_ENVIRONMENT, WAIT_TIMEOUT,
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
+    Windows::Win32::System::SystemServices::{
+        GENERIC_READ
+    },
+    Windows::Win32::Storage::FileSystem::{
+        FILE_SHARE_READ,FILE_SHARE_WRITE,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ,  FILE_GENERIC_WRITE, CreateFileW
+    },
 };
 use std::fs::File;
 use std::io;
@@ -42,10 +48,10 @@ pub struct Proc {
 
 impl Proc {
     pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Self> {
-        enableVirtualTerminalSequenceProcessing()?;
-        let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
+        enableVirtualTerminalSequenceProcessing().unwrap();
+        let (mut console, pty_reader, pty_writer) = createPseudoConsole().unwrap();
 
-        let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
+        let startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
         let proc = execProc(startup_info, cmd);
 
         let f_reader = unsafe { File::from_raw_handle(pty_reader.0 as _) };
@@ -118,12 +124,14 @@ impl Drop for Proc {
 }
 
 fn enableVirtualTerminalSequenceProcessing() -> windows::Result<()> {
-    let mut mode = CONSOLE_MODE::default();
+    let stdout_h = stdout_handle()?;
     unsafe {
-        let stdout_h = GetStdHandle(STD_OUTPUT_HANDLE);
-        GetConsoleMode(stdout_h, &mut mode).ok()?;
+        let mut mode = CONSOLE_MODE::default();
+        GetConsoleMode(stdout_h, &mut mode).ok().unwrap();
         mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING; // DISABLE_NEWLINE_AUTO_RETURN
-        SetConsoleMode(stdout_h, mode).ok()?;
+        SetConsoleMode(stdout_h, mode).ok().unwrap();
+
+        CloseHandle(stdout_h);
     }
 
     Ok(())
@@ -151,10 +159,11 @@ fn createPseudoConsole() -> windows::Result<(HPCON, HANDLE, HANDLE)> {
 }
 
 fn inhirentConsoleSize() -> windows::Result<COORD> {
+    let stdout_h = stdout_handle()?;
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
     unsafe {
-        let stdout_h = GetStdHandle(STD_OUTPUT_HANDLE);
         GetConsoleScreenBufferInfo(stdout_h, &mut info).ok()?;
+        CloseHandle(stdout_h);
     };
 
     let mut size = COORD { X: 24, Y: 80 };
@@ -255,5 +264,28 @@ impl io::Write for Proc {
 impl io::Read for Proc {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.pty_out.read(buf)
+    }
+}
+
+fn stdout_handle() -> windows::Result<HANDLE> {
+    // we can't use `GetStdHandle(STD_OUTPUT_HANDLE)`
+    // because it doesn't work when the IO is redirected
+    //
+    // https://stackoverflow.com/questions/33476316/win32-getconsolemode-error-code-6
+
+    let hConsole = unsafe { CreateFileW(
+        "CONOUT$",
+        FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+        FILE_SHARE_READ|FILE_SHARE_WRITE, 
+        std::ptr::null_mut(),
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        HANDLE::NULL,
+    ) };
+
+    if hConsole.is_null() || hConsole.is_invalid() {
+        Err(HRESULT::from_thread().into())
+    } else {
+        Ok(hConsole)
     }
 }
