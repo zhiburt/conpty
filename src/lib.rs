@@ -27,6 +27,7 @@ use bindings::{
     Windows::Win32::Storage::FileSystem::{
         FILE_SHARE_READ,FILE_SHARE_WRITE,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ,  FILE_GENERIC_WRITE, CreateFileW
     },
+    Windows::Win32::Security::SECURITY_ATTRIBUTES,
 };
 use std::fs::File;
 use std::io;
@@ -181,14 +182,17 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
 
     let mut size: usize = 0;
-    let res = unsafe {
-        InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut()), 1, 0, &mut size)
-    };
+    let res = unsafe { InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST::default(), 1, 0, &mut size) };
     if res.as_bool() || size == 0 {
         return Err(windows::Error::new(HRESULT::from_thread(), ""));
     }
 
+    // SAFETY
+    // we leak the memory intentionally,
+    // it will be freed on DROP.
     let mut lpAttributeList = vec![0u8; size].into_boxed_slice();
+    let mut lpAttributeList = Box::leak(lpAttributeList);
+    
     siEx.lpAttributeList = LPPROC_THREAD_ATTRIBUTE_LIST(lpAttributeList.as_mut_ptr().cast());
 
     unsafe {
@@ -217,6 +221,14 @@ fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCE
     let cmd = format!("{} /C {:?}", inter, cmd);
 
     println!("cmd {:?}", cmd);
+
+    // let mut zeroSec = SECURITY_ATTRIBUTES {
+    //     bInheritHandle: false.into(),
+    //     nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+    //     ..Default::default()
+    // };
+    // let mut pSec = zeroSec.clone();
+    // let mut tSec = zeroSec.clone();
 
     let mut proc_info = PROCESS_INFORMATION::default();
     unsafe {

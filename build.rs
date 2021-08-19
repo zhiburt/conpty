@@ -7,5 +7,6 @@ fn main() {
         Windows::Win32::System::SystemServices::*,
         Windows::Win32::System::WindowsProgramming::INFINITE,
         Windows::Win32::Storage::FileSystem::*,
+        Windows::Win32::Security::SECURITY_ATTRIBUTES,
     };
 }
