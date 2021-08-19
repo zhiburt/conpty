@@ -5,29 +5,25 @@ mod bindings {
 }
 
 use bindings::{
-    Windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+    Windows::Win32::Foundation::{CloseHandle},
     Windows::Win32::Foundation::{HANDLE, PWSTR},
+    Windows::Win32::Storage::FileSystem::{
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
+    },
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
-        GetStdHandle, ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE,
+        ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE,
         CONSOLE_SCREEN_BUFFER_INFO, COORD, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
-        STD_OUTPUT_HANDLE,
     },
     Windows::Win32::System::Pipes::CreatePipe,
     Windows::Win32::System::Threading::{
-        CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
-        UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT,
-        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
-        GetProcessId, GetExitCodeProcess, CREATE_UNICODE_ENVIRONMENT, WAIT_TIMEOUT,
+        CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
+        InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject,
+        CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
+        PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT,
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
-    Windows::Win32::System::SystemServices::{
-        GENERIC_READ
-    },
-    Windows::Win32::Storage::FileSystem::{
-        FILE_SHARE_READ,FILE_SHARE_WRITE,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ,  FILE_GENERIC_WRITE, CreateFileW
-    },
-    Windows::Win32::Security::SECURITY_ATTRIBUTES,
 };
 use std::fs::File;
 use std::io;
@@ -94,7 +90,6 @@ impl Proc {
             ret == WAIT_TIMEOUT
         }
     }
-
 
     // fn send_line(&self, b: impl AsRef<str>) -> windows::Result<usize> {
     //     let b = b.as_ref().as_bytes().as_mut_ptr();
@@ -182,7 +177,9 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
 
     let mut size: usize = 0;
-    let res = unsafe { InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST::default(), 1, 0, &mut size) };
+    let res = unsafe {
+        InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST::default(), 1, 0, &mut size)
+    };
     if res.as_bool() || size == 0 {
         return Err(windows::Error::new(HRESULT::from_thread(), ""));
     }
@@ -190,9 +187,9 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     // SAFETY
     // we leak the memory intentionally,
     // it will be freed on DROP.
-    let mut lpAttributeList = vec![0u8; size].into_boxed_slice();
-    let mut lpAttributeList = Box::leak(lpAttributeList);
-    
+    let lpAttributeList = vec![0u8; size].into_boxed_slice();
+    let lpAttributeList = Box::leak(lpAttributeList);
+
     siEx.lpAttributeList = LPPROC_THREAD_ATTRIBUTE_LIST(lpAttributeList.as_mut_ptr().cast());
 
     unsafe {
@@ -217,7 +214,7 @@ fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCE
     // The Unicode version of this function, CreateProcessW, can modify the contents of this string.
     // Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a literal string).
     // If this parameter is a constant string, the function may cause an access violation.
-    let mut cmd = command.as_ref().to_owned();
+    let cmd = command.as_ref().to_owned();
     let cmd = format!("{} /C {:?}", inter, cmd);
 
     println!("cmd {:?}", cmd);
@@ -285,15 +282,17 @@ fn stdout_handle() -> windows::Result<HANDLE> {
     //
     // https://stackoverflow.com/questions/33476316/win32-getconsolemode-error-code-6
 
-    let hConsole = unsafe { CreateFileW(
-        "CONOUT$",
-        FILE_GENERIC_READ | FILE_GENERIC_WRITE,
-        FILE_SHARE_READ|FILE_SHARE_WRITE, 
-        std::ptr::null_mut(),
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        HANDLE::NULL,
-    ) };
+    let hConsole = unsafe {
+        CreateFileW(
+            "CONOUT$",
+            FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            std::ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            HANDLE::NULL,
+        )
+    };
 
     if hConsole.is_null() || hConsole.is_invalid() {
         Err(HRESULT::from_thread().into())
