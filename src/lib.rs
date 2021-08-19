@@ -18,7 +18,7 @@ use bindings::{
         CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
         UpdateProcThreadAttribute, WaitForSingleObject, EXTENDED_STARTUPINFO_PRESENT,
         LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
-        GetProcessId, GetExitCodeProcess,
+        GetProcessId, GetExitCodeProcess, CREATE_UNICODE_ENVIRONMENT, WAIT_TIMEOUT,
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
 };
@@ -79,6 +79,15 @@ impl Proc {
             Ok(code)
         }
     }
+
+    pub fn is_alive(&self) -> bool {
+        // https://stackoverflow.com/questions/1591342/c-how-to-determine-if-a-windows-process-is-running/5303889
+        unsafe {
+            let ret = WaitForSingleObject(self._proc.hProcess, 0);
+            ret == WAIT_TIMEOUT
+        }
+    }
+
 
     // fn send_line(&self, b: impl AsRef<str>) -> windows::Result<usize> {
     //     let b = b.as_ref().as_bytes().as_mut_ptr();
@@ -208,7 +217,7 @@ fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCE
             null_mut(),
             null_mut(),
             false,
-            EXTENDED_STARTUPINFO_PRESENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
             null_mut(),
             PWSTR::NULL,
             &mut startup_info.StartupInfo,
