@@ -5,16 +5,16 @@ mod bindings {
 }
 
 use bindings::{
-    Windows::Win32::Foundation::{CloseHandle},
+    Windows::Win32::Foundation::CloseHandle,
     Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
+        CreateFileW, ReadFile, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, FlushFileBuffers, WriteFile,
     },
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
-        ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE,
-        CONSOLE_SCREEN_BUFFER_INFO, COORD, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
+        ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
     },
     Windows::Win32::System::Pipes::CreatePipe,
     Windows::Win32::System::Threading::{
@@ -36,8 +36,8 @@ pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Proc> {
 }
 
 pub struct Proc {
-    pty_in: File,
-    pty_out: File,
+    pty_input: HANDLE,
+    pty_output: HANDLE,
     _proc: PROCESS_INFORMATION,
     _proc_info: STARTUPINFOEXW,
     _console: HPCON,
@@ -47,16 +47,12 @@ impl Proc {
     pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Self> {
         enableVirtualTerminalSequenceProcessing().unwrap();
         let (mut console, pty_reader, pty_writer) = createPseudoConsole().unwrap();
-
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
         let proc = execProc(startup_info, cmd);
 
-        let f_reader = unsafe { File::from_raw_handle(pty_reader.0 as _) };
-        let f_writer = unsafe { File::from_raw_handle(pty_writer.0 as _) };
-
         Ok(Self {
-            pty_in: f_writer,
-            pty_out: f_reader,
+            pty_input: pty_writer,
+            pty_output: pty_reader,
             _console: console,
             _proc: proc,
             _proc_info: startup_info,
@@ -91,14 +87,13 @@ impl Proc {
         }
     }
 
-    // fn send_line(&self, b: impl AsRef<str>) -> windows::Result<usize> {
-    //     let b = b.as_ref().as_bytes().as_mut_ptr();
-    //     let buf_len = b.as_ref().as_bytes().len();
-    //     let bytes_written = 0;
-    //     WriteFile(self.pty_out, b as _, buf_len, &mut bytes_written as _, null_mut()).ok()?;
+    pub fn pty_input(&self) -> File {
+        unsafe { File::from_raw_handle(self.pty_input.0 as _) }
+    }
 
-    //     Ok(bytes_written)
-    // }
+    pub fn pty_output(&self) -> File {
+        unsafe { File::from_raw_handle(self.pty_output.0 as _) }
+    }
 }
 
 impl Drop for Proc {
@@ -110,12 +105,33 @@ impl Drop for Proc {
             CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
+            unsafe { let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _); }
 
-            // Handles will be closes when File's will be dropped
-            //
-            // CloseHandle(hPipeOut);
-            // CloseHandle(hPipeOut);
+            CloseHandle(self.pty_input);
+            CloseHandle(self.pty_output);
         }
+    }
+}
+
+impl io::Write for Proc {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        // fixme: downcasting usize to u32 on x64 may cause issue
+        let mut written = 0;
+        unsafe { WriteFile(self.pty_input, buf.as_ptr() as _, buf.len() as u32, &mut written, null_mut()).ok().unwrap() };
+        Ok(written as usize)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        unsafe { FlushFileBuffers(self.pty_input).ok().unwrap() };
+        Ok(())
+    }
+}
+
+impl io::Read for Proc {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let mut read = 0;
+        unsafe { ReadFile(self.pty_output, buf.as_mut_ptr() as _, buf.len() as u32, &mut read, null_mut()).ok().unwrap(); }
+        Ok(read as usize)
     }
 }
 
@@ -219,14 +235,6 @@ fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCE
 
     println!("cmd {:?}", cmd);
 
-    // let mut zeroSec = SECURITY_ATTRIBUTES {
-    //     bInheritHandle: false.into(),
-    //     nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
-    //     ..Default::default()
-    // };
-    // let mut pSec = zeroSec.clone();
-    // let mut tSec = zeroSec.clone();
-
     let mut proc_info = PROCESS_INFORMATION::default();
     unsafe {
         CreateProcessW(
@@ -254,26 +262,6 @@ fn pipe() -> windows::Result<(HANDLE, HANDLE)> {
     unsafe { CreatePipe(&mut p_in, &mut p_out, std::ptr::null_mut(), 0).ok()? };
 
     Ok((p_in, p_out))
-}
-
-impl io::Write for Proc {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.pty_in.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.pty_in.flush()
-    }
-
-    fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize> {
-        self.pty_in.write_vectored(bufs)
-    }
-}
-
-impl io::Read for Proc {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.pty_out.read(buf)
-    }
 }
 
 fn stdout_handle() -> windows::Result<HANDLE> {

@@ -5,6 +5,8 @@ fn main() {
 
     println!("Process has pid={}", proc.pid());
 
+    proc.write(b"ping").unwrap();
+
     let mut buf = [0; 300];
     while proc.is_alive() {
         let n = proc.read(&mut buf).unwrap();
