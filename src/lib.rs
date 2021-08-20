@@ -8,8 +8,8 @@ use bindings::{
     Windows::Win32::Foundation::CloseHandle,
     Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::Storage::FileSystem::{
-        CreateFileW, ReadFile, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, FlushFileBuffers, WriteFile,
+        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
     },
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
@@ -36,8 +36,8 @@ pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Proc> {
 }
 
 pub struct Proc {
-    pty_input: HANDLE,
-    pty_output: HANDLE,
+    pty_input: File,
+    pty_output: File,
     _proc: PROCESS_INFORMATION,
     _proc_info: STARTUPINFOEXW,
     _console: HPCON,
@@ -50,9 +50,16 @@ impl Proc {
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
         let proc = execProc(startup_info, cmd);
 
+        let pty_input = unsafe { File::from_raw_handle(pty_writer.0 as _) };
+        let pty_output = unsafe { File::from_raw_handle(pty_reader.0 as _) };
+
+        // from_raw_handle doesn't DUP handle so we don't need to close them
+        // unsafe { CloseHandle(pty_writer); }
+        // unsafe { CloseHandle(pty_reader); }
+
         Ok(Self {
-            pty_input: pty_writer,
-            pty_output: pty_reader,
+            pty_input,
+            pty_output,
             _console: console,
             _proc: proc,
             _proc_info: startup_info,
@@ -87,12 +94,12 @@ impl Proc {
         }
     }
 
-    pub fn pty_input(&self) -> File {
-        unsafe { File::from_raw_handle(self.pty_input.0 as _) }
+    pub fn pty_input(&self) -> io::Result<File> {
+        self.pty_input.try_clone()
     }
 
-    pub fn pty_output(&self) -> File {
-        unsafe { File::from_raw_handle(self.pty_output.0 as _) }
+    pub fn pty_output(&self) -> io::Result<File> {
+        self.pty_output.try_clone()
     }
 }
 
@@ -105,33 +112,30 @@ impl Drop for Proc {
             CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
-            unsafe { let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _); }
+            unsafe {
+                let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _);
+            }
 
-            CloseHandle(self.pty_input);
-            CloseHandle(self.pty_output);
+            // pipes are closed when files are dropped
+            // CloseHandle(self.pty_input);
+            // CloseHandle(self.pty_output);
         }
     }
 }
 
 impl io::Write for Proc {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        // fixme: downcasting usize to u32 on x64 may cause issue
-        let mut written = 0;
-        unsafe { WriteFile(self.pty_input, buf.as_ptr() as _, buf.len() as u32, &mut written, null_mut()).ok().unwrap() };
-        Ok(written as usize)
+        self.pty_input.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        unsafe { FlushFileBuffers(self.pty_input).ok().unwrap() };
-        Ok(())
+        self.pty_input.flush()
     }
 }
 
 impl io::Read for Proc {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut read = 0;
-        unsafe { ReadFile(self.pty_output, buf.as_mut_ptr() as _, buf.len() as u32, &mut read, null_mut()).ok().unwrap(); }
-        Ok(read as usize)
+        self.pty_output.read(buf)
     }
 }
 
