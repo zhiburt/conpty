@@ -19,9 +19,9 @@ use bindings::{
     Windows::Win32::System::Pipes::CreatePipe,
     Windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
-        InitializeProcThreadAttributeList, UpdateProcThreadAttribute, WaitForSingleObject,
-        CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-        PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT,
+        InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
+        WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT,
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
 };
@@ -73,6 +73,10 @@ impl Proc {
 
     pub fn pid(&self) -> u32 {
         unsafe { GetProcessId(self._proc.hProcess) }
+    }
+
+    pub fn exit(&self, code: u32) -> windows::Result<()> {
+        unsafe { TerminateProcess(self._proc.hProcess, code).ok() }
     }
 
     pub fn wait(&self) -> windows::Result<u32> {
