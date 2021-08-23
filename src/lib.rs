@@ -9,7 +9,7 @@ use bindings::{
     Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
+        FILE_SHARE_WRITE, OPEN_EXISTING, ReadFile
     },
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
@@ -30,117 +30,20 @@ use std::io;
 use std::os::windows::io::FromRawHandle;
 use std::{mem::size_of, ptr::null_mut};
 use windows::HRESULT;
+use std::collections::HashMap;
 
-pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Proc> {
-    Proc::spawn(cmd)
-}
+pub fn spawn() -> windows::Result<()> {
+    enableVirtualTerminalSequenceProcessing();
+    let (mut console, pty_reader, pty_writer) = createPseudoConsole().unwrap();
+    let mut startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
 
-pub struct Proc {
-    pty_input: File,
-    pty_output: File,
-    _proc: PROCESS_INFORMATION,
-    _proc_info: STARTUPINFOEXW,
-    _console: HPCON,
-}
+    execProc(startup_info);
+    
+    let mut read = 0;
+    let mut buf = [0; 300]; 
+    unsafe { ReadFile(pty_reader, buf.as_mut_ptr() as _, buf.len() as u32, &mut read, null_mut()); }
 
-impl Proc {
-    pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Self> {
-        enableVirtualTerminalSequenceProcessing().unwrap();
-        let (mut console, pty_reader, pty_writer) = createPseudoConsole().unwrap();
-        let startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
-        let proc = execProc(startup_info, cmd);
-
-        let pty_input = unsafe { File::from_raw_handle(pty_writer.0 as _) };
-        let pty_output = unsafe { File::from_raw_handle(pty_reader.0 as _) };
-
-        // from_raw_handle doesn't DUP handle so we don't need to close them
-        // unsafe { CloseHandle(pty_writer); }
-        // unsafe { CloseHandle(pty_reader); }
-
-        Ok(Self {
-            pty_input,
-            pty_output,
-            _console: console,
-            _proc: proc,
-            _proc_info: startup_info,
-        })
-    }
-
-    pub fn resize(&self, x: i16, y: i16) -> windows::Result<()> {
-        unsafe { ResizePseudoConsole(self._console.clone(), COORD { X: x, Y: y })? };
-        Ok(())
-    }
-
-    pub fn pid(&self) -> u32 {
-        unsafe { GetProcessId(self._proc.hProcess) }
-    }
-
-    pub fn exit(&self, code: u32) -> windows::Result<()> {
-        unsafe { TerminateProcess(self._proc.hProcess, code).ok() }
-    }
-
-    pub fn wait(&self) -> windows::Result<u32> {
-        unsafe {
-            WaitForSingleObject(self._proc.hProcess, INFINITE);
-
-            let mut code = 0;
-            GetExitCodeProcess(self._proc.hProcess, &mut code).ok()?;
-
-            Ok(code)
-        }
-    }
-
-    pub fn is_alive(&self) -> bool {
-        // https://stackoverflow.com/questions/1591342/c-how-to-determine-if-a-windows-process-is-running/5303889
-        unsafe {
-            let ret = WaitForSingleObject(self._proc.hProcess, 0);
-            ret == WAIT_TIMEOUT
-        }
-    }
-
-    pub fn pty_input(&self) -> io::Result<File> {
-        self.pty_input.try_clone()
-    }
-
-    pub fn pty_output(&self) -> io::Result<File> {
-        self.pty_output.try_clone()
-    }
-}
-
-impl Drop for Proc {
-    fn drop(&mut self) {
-        unsafe {
-            ClosePseudoConsole(self._console);
-
-            CloseHandle(self._proc.hProcess);
-            CloseHandle(self._proc.hThread);
-
-            DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
-            unsafe {
-                let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _);
-            }
-
-            // pipes are closed when files are dropped
-            // CloseHandle(self.pty_input);
-            // CloseHandle(self.pty_output);
-        }
-    }
-}
-
-impl io::Write for Proc {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.pty_input.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.pty_input.flush()
-    }
-}
-
-impl io::Read for Proc {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.pty_output.read(buf)
-    }
+    Ok(())
 }
 
 fn enableVirtualTerminalSequenceProcessing() -> windows::Result<()> {
@@ -161,13 +64,11 @@ fn createPseudoConsole() -> windows::Result<(HPCON, HANDLE, HANDLE)> {
     let (pty_in, con_writer) = pipe()?;
     let (con_reader, pty_out) = pipe()?;
 
-    let size = inhirentConsoleSize()?;
+    let size = COORD { X: 24, Y: 80 };
 
     let console = unsafe { CreatePseudoConsole(size, pty_in, pty_out, 0)? };
 
-    // Note: We can close the handles to the PTY-end of the pipes here
-    // because the handles are dup'ed into the ConHost and will be released
-    // when the ConPTY is destroyed.
+
     unsafe {
         CloseHandle(pty_in);
     }
@@ -178,23 +79,7 @@ fn createPseudoConsole() -> windows::Result<(HPCON, HANDLE, HANDLE)> {
     Ok((console, con_reader, con_writer))
 }
 
-fn inhirentConsoleSize() -> windows::Result<COORD> {
-    let stdout_h = stdout_handle()?;
-    let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
-    unsafe {
-        GetConsoleScreenBufferInfo(stdout_h, &mut info).ok()?;
-        CloseHandle(stdout_h);
-    };
-
-    let mut size = COORD { X: 24, Y: 80 };
-    size.X = info.srWindow.Right - info.srWindow.Left + 1;
-    size.Y = info.srWindow.Bottom - info.srWindow.Top + 1;
-
-    Ok(size)
-}
-
-// const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 22 | 0x0002_0000;
-const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;
+const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;  // 22 | 0x0002_0000
 
 fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STARTUPINFOEXW> {
     let mut siEx = STARTUPINFOEXW::default();
@@ -233,37 +118,6 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     Ok(siEx)
 }
 
-fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCESS_INFORMATION {
-    let inter = std::env::var("COMSPEC").unwrap();
-    // The Unicode version of this function, CreateProcessW, can modify the contents of this string.
-    // Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a literal string).
-    // If this parameter is a constant string, the function may cause an access violation.
-    let cmd = command.as_ref().to_owned();
-    let cmd = format!("{} /C {:?}", inter, cmd);
-
-    println!("cmd {:?}", cmd);
-
-    let mut proc_info = PROCESS_INFORMATION::default();
-    unsafe {
-        CreateProcessW(
-            PWSTR::NULL,
-            cmd,
-            null_mut(),
-            null_mut(),
-            false,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
-            null_mut(),
-            PWSTR::NULL,
-            &mut startup_info.StartupInfo,
-            &mut proc_info,
-        )
-        .ok()
-        .unwrap()
-    };
-
-    proc_info
-}
-
 fn pipe() -> windows::Result<(HANDLE, HANDLE)> {
     let mut p_in = HANDLE::default();
     let mut p_out = HANDLE::default();
@@ -295,4 +149,28 @@ fn stdout_handle() -> windows::Result<HANDLE> {
     } else {
         Ok(hConsole)
     }
+}
+
+fn execProc(mut startup_info: STARTUPINFOEXW) -> PROCESS_INFORMATION {
+    let cmd = "ping";
+    
+    let mut proc_info = PROCESS_INFORMATION::default();
+    unsafe {
+        CreateProcessW(
+            PWSTR::NULL, // is it save to use *mut u8 as *mut u16
+            cmd,
+            null_mut(),
+            null_mut(),
+            false,
+            EXTENDED_STARTUPINFO_PRESENT,
+            null_mut(),
+            PWSTR::NULL,
+            &mut startup_info.StartupInfo,
+            &mut proc_info,
+        )
+        .ok()
+        .unwrap()
+    };
+
+    proc_info
 }
