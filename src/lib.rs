@@ -46,10 +46,10 @@ pub struct Proc {
 
 impl Proc {
     fn spawn(attr: ProcAttr) -> windows::Result<Self> {
-        enableVirtualTerminalSequenceProcessing().unwrap();
-        let (mut console, pty_reader, pty_writer) = createPseudoConsole().unwrap();
-        let startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
-        let proc = execProc(startup_info, attr);
+        enableVirtualTerminalSequenceProcessing()?;
+        let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
+        let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
+        let proc = execProc(startup_info, attr)?;
 
         Ok(Self {
             pty_input: pty_writer,
@@ -61,8 +61,7 @@ impl Proc {
     }
 
     pub fn resize(&self, x: i16, y: i16) -> windows::Result<()> {
-        unsafe { ResizePseudoConsole(self._console.clone(), COORD { X: x, Y: y })? };
-        Ok(())
+        unsafe { ResizePseudoConsole(self._console, COORD { X: x, Y: y }) }
     }
 
     pub fn pid(&self) -> u32 {
@@ -207,9 +206,9 @@ fn enableVirtualTerminalSequenceProcessing() -> windows::Result<()> {
     let stdout_h = stdout_handle()?;
     unsafe {
         let mut mode = CONSOLE_MODE::default();
-        GetConsoleMode(stdout_h, &mut mode).ok().unwrap();
+        GetConsoleMode(stdout_h, &mut mode).ok()?;
         mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING; // DISABLE_NEWLINE_AUTO_RETURN
-        SetConsoleMode(stdout_h, mode).ok().unwrap();
+        SetConsoleMode(stdout_h, mode).ok()?;
 
         CloseHandle(stdout_h);
     }
@@ -293,7 +292,10 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     Ok(siEx)
 }
 
-fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> PROCESS_INFORMATION {
+fn execProc(
+    mut startup_info: STARTUPINFOEXW,
+    attr: ProcAttr,
+) -> windows::Result<PROCESS_INFORMATION> {
     if attr.commandline.is_none() && attr.application.is_none() {
         panic!("")
     }
@@ -303,13 +305,13 @@ fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> PROCESS_INFORMA
     let mut commandline = pwstr_param(attr.commandline);
     let mut application = pwstr_param(attr.application);
     let mut current_dir = pwstr_param(attr.current_dir);
-    let mut env = match attr.env {
+    let env = match attr.env {
         Some(env) => Box::<[u16]>::into_raw(environment_block_unicode(env).into_boxed_slice()) as _,
         None => null_mut(),
     };
 
     let mut proc_info = PROCESS_INFORMATION::default();
-    unsafe {
+    let result = unsafe {
         CreateProcessW(
             application.abi(),
             commandline.abi(),
@@ -323,7 +325,6 @@ fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> PROCESS_INFORMA
             &mut proc_info,
         )
         .ok()
-        .unwrap()
     };
 
     if !env.is_null() {
@@ -332,7 +333,9 @@ fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> PROCESS_INFORMA
         }
     }
 
-    proc_info
+    result?;
+
+    Ok(proc_info)
 }
 
 fn pipe() -> windows::Result<(HANDLE, HANDLE)> {
@@ -386,30 +389,8 @@ fn environment_block_unicode(env: HashMap<String, String>) -> Vec<u16> {
     b
 }
 
-// Error implementation
-// fn pwstr_param(s: Option<String>) -> PWSTR {
-//     // we can't return a PWSTR from function because windows::Param<PWSTR> will be droped and memory will be leaked
-//     use windows::IntoParam;
-//     match s {
-//         Some(s) => {
-//             let mut p: windows::Param<PWSTR> = s.into_param();
-//             p.abi()
-//         }
-//         None => {
-//             PWSTR::NULL
-//         }
-//     }
-// }
-
 // if given string is empty there will be produced a "\0" string in UTF-16
-//
-// @todo: PR for Impl IntoParam<Option<String>>
 fn pwstr_param(s: Option<String>) -> windows::Param<'static, PWSTR> {
-    // we can't return a PWSTR from function because windows::Param<PWSTR> will be droped and memory will be leaked
-    //
-    // let mut p: windows::Param<PWSTR> = s.as_ref().into_param();
-    // p.abi()
-
     use windows::IntoParam;
     match s {
         Some(s) => {
@@ -420,24 +401,6 @@ fn pwstr_param(s: Option<String>) -> windows::Param<'static, PWSTR> {
             // the memory will be zeroed
             // https://github.com/microsoft/windows-rs/blob/e1ab47c00b10b220d1372e4cdbe9a689d6365001/src/runtime/param.rs
             windows::Param::None
-        }
-    }
-}
-
-impl<'a> ::windows::IntoParam<'a, PWSTR> for Option<&'a str> {
-    fn into_param(self) -> ::windows::Param<'a, PWSTR> {
-        match self {
-            Some(s) => s.into_param(),
-            None => windows::Param::None,
-        }
-    }
-}
-
-impl<'a> ::windows::IntoParam<'a, PWSTR> for Option<String> {
-    fn into_param(self) -> ::windows::Param<'a, PWSTR> {
-        match self {
-            Some(s) => s.into_param(),
-            None => windows::Param::None,
         }
     }
 }
