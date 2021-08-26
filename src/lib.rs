@@ -25,14 +25,15 @@ use bindings::{
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
 };
+use std::collections::HashMap;
 use std::fs::File;
 use std::io;
 use std::os::windows::io::FromRawHandle;
 use std::{mem::size_of, ptr::null_mut};
 use windows::HRESULT;
 
-pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Proc> {
-    Proc::spawn(cmd)
+pub fn spawn(cmd: impl Into<String>) -> windows::Result<Proc> {
+    Proc::spawn(ProcAttr::cmd(cmd.into()))
 }
 
 pub struct Proc {
@@ -44,11 +45,11 @@ pub struct Proc {
 }
 
 impl Proc {
-    pub fn spawn(cmd: impl AsRef<str>) -> windows::Result<Self> {
+    fn spawn(attr: ProcAttr) -> windows::Result<Self> {
         enableVirtualTerminalSequenceProcessing().unwrap();
         let (mut console, pty_reader, pty_writer) = createPseudoConsole().unwrap();
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console).unwrap();
-        let proc = execProc(startup_info, cmd);
+        let proc = execProc(startup_info, attr);
 
         Ok(Self {
             pty_input: pty_writer,
@@ -116,6 +117,89 @@ impl Drop for Proc {
             CloseHandle(self.pty_input);
             CloseHandle(self.pty_output);
         }
+    }
+}
+
+// ProcAttr represents parameters for process to be spawned.
+//
+// Generally to run a common process you can set commandline to a path to binary.
+// But if you're trying to spawn just a command in shell if must provide your shell first, like cmd.exe.
+// One more time, cmd.exe is not needed if you're spawning an .exe file - it is necessary if you're trying
+// to spawn a anything else like .bat file.
+#[derive(Default, Debug)]
+pub struct ProcAttr {
+    application: Option<String>,
+    commandline: Option<String>,
+    current_dir: Option<String>,
+    args: Vec<String>,
+    env: Option<HashMap<String, String>>,
+}
+
+impl ProcAttr {
+    pub fn batch(file: String) -> Self {
+        // To run a batch file, you must start the command interpreter; set lpApplicationName to cmd.exe and
+        // set lpCommandLine to the following arguments: /c plus the name of the batch file.
+        //
+        // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
+        let inter = std::env::var("COMSPEC").unwrap();
+        let args = format!("/C {:?}", file);
+
+        Self::default().application(inter).commandline(args)
+    }
+
+    pub fn cmd(commandline: String) -> Self {
+        // To run a batch file, you must start the command interpreter; set lpApplicationName to cmd.exe and
+        // set lpCommandLine to the following arguments: /c plus the name of the batch file.
+        //
+        // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
+        let inter = std::env::var("COMSPEC").unwrap();
+        let args = format!("{} /C {}", inter, commandline);
+
+        Self::default().commandline(args)
+    }
+
+    pub fn commandline(mut self, cmd: String) -> Self {
+        self.commandline = Some(cmd);
+        self
+    }
+
+    pub fn application(mut self, application: String) -> Self {
+        self.application = Some(application);
+        self
+    }
+
+    pub fn current_dir(mut self, dir: String) -> Self {
+        self.current_dir = Some(dir);
+        self
+    }
+
+    pub fn args(mut self, args: Vec<String>) -> Self {
+        self.args = args;
+        self
+    }
+
+    pub fn arg(mut self, arg: String) -> Self {
+        self.args.push(arg);
+        self
+    }
+
+    pub fn envs(mut self, env: HashMap<String, String>) -> Self {
+        self.env = Some(env);
+        self
+    }
+
+    pub fn env(mut self, key: String, value: String) -> Self {
+        match &mut self.env {
+            Some(env) => {
+                env.insert(key, value);
+                self
+            }
+            None => self.envs(HashMap::new()).env(key, value),
+        }
+    }
+
+    pub fn spawn(self) -> windows::Result<Proc> {
+        Proc::spawn(self)
     }
 }
 
@@ -209,33 +293,44 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     Ok(siEx)
 }
 
-fn execProc(mut startup_info: STARTUPINFOEXW, command: impl AsRef<str>) -> PROCESS_INFORMATION {
-    let inter = std::env::var("COMSPEC").unwrap();
-    // The Unicode version of this function, CreateProcessW, can modify the contents of this string.
-    // Therefore, this parameter cannot be a pointer to read-only memory (such as a const variable or a literal string).
-    // If this parameter is a constant string, the function may cause an access violation.
-    let cmd = command.as_ref().to_owned();
-    let cmd = format!("{} /C {:?}", inter, cmd);
+fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> PROCESS_INFORMATION {
+    if attr.commandline.is_none() && attr.application.is_none() {
+        panic!("")
+    }
 
-    println!("cmd {:?}", cmd);
+    println!("attr {:?}", attr);
+
+    let mut commandline = pwstr_param(attr.commandline);
+    let mut application = pwstr_param(attr.application);
+    let mut current_dir = pwstr_param(attr.current_dir);
+    let mut env = match attr.env {
+        Some(env) => Box::<[u16]>::into_raw(environment_block_unicode(env).into_boxed_slice()) as _,
+        None => null_mut(),
+    };
 
     let mut proc_info = PROCESS_INFORMATION::default();
     unsafe {
         CreateProcessW(
-            PWSTR::NULL,
-            cmd,
+            application.abi(),
+            commandline.abi(),
             null_mut(),
             null_mut(),
             false,
             EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
-            null_mut(),
-            PWSTR::NULL,
+            env,
+            current_dir.abi(),
             &mut startup_info.StartupInfo,
             &mut proc_info,
         )
         .ok()
         .unwrap()
     };
+
+    if !env.is_null() {
+        unsafe {
+            ::std::boxed::Box::from_raw(env);
+        }
+    }
 
     proc_info
 }
@@ -273,10 +368,85 @@ fn stdout_handle() -> windows::Result<HANDLE> {
     }
 }
 
+fn environment_block_unicode(env: HashMap<String, String>) -> Vec<u16> {
+    if env.is_empty() {
+        // two '\0' in UTF-16/UCS-2
+        // four '\0' in UTF-8
+        return vec![0, 0];
+    }
+
+    let mut b = Vec::new();
+    for (key, value) in env {
+        let part = format!("{}={}\0", key, value);
+        b.extend(part.encode_utf16());
+    }
+
+    b.push(0);
+
+    b
+}
+
+// Error implementation
+// fn pwstr_param(s: Option<String>) -> PWSTR {
+//     // we can't return a PWSTR from function because windows::Param<PWSTR> will be droped and memory will be leaked
+//     use windows::IntoParam;
+//     match s {
+//         Some(s) => {
+//             let mut p: windows::Param<PWSTR> = s.into_param();
+//             p.abi()
+//         }
+//         None => {
+//             PWSTR::NULL
+//         }
+//     }
+// }
+
+// if given string is empty there will be produced a "\0" string in UTF-16
+//
+// @todo: PR for Impl IntoParam<Option<String>>
+fn pwstr_param(s: Option<String>) -> windows::Param<'static, PWSTR> {
+    // we can't return a PWSTR from function because windows::Param<PWSTR> will be droped and memory will be leaked
+    //
+    // let mut p: windows::Param<PWSTR> = s.as_ref().into_param();
+    // p.abi()
+
+    use windows::IntoParam;
+    match s {
+        Some(s) => {
+            // https://github.com/microsoft/windows-rs/blob/ba61866b51bafac94844a242f971739583ffa70e/crates/gen/src/pwstr.rs
+            s.into_param()
+        }
+        None => {
+            // the memory will be zeroed
+            // https://github.com/microsoft/windows-rs/blob/e1ab47c00b10b220d1372e4cdbe9a689d6365001/src/runtime/param.rs
+            windows::Param::None
+        }
+    }
+}
+
+impl<'a> ::windows::IntoParam<'a, PWSTR> for Option<&'a str> {
+    fn into_param(self) -> ::windows::Param<'a, PWSTR> {
+        match self {
+            Some(s) => s.into_param(),
+            None => windows::Param::None,
+        }
+    }
+}
+
+impl<'a> ::windows::IntoParam<'a, PWSTR> for Option<String> {
+    fn into_param(self) -> ::windows::Param<'a, PWSTR> {
+        match self {
+            Some(s) => s.into_param(),
+            None => windows::Param::None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::prelude::*;
+    use std::iter::FromIterator;
 
     // not sure if's desired behaiviour
     #[test]
@@ -290,5 +460,47 @@ mod tests {
         drop(writer1);
 
         assert!(writer2.write(b"").is_err());
+    }
+
+    // not sure if's desired behaiviour
+    // todo: timeout for wait/exit
+    #[test]
+    pub fn env_parameter() {
+        let batch = r#"if "%TEST_ENV%"=="123456" (exit 0) else (exit 1)"#;
+        let mut proc = ProcAttr::cmd(batch.to_string())
+            .env("TEST_ENV".to_string(), "123456".to_string())
+            .spawn()
+            .unwrap();
+        assert_eq!(proc.wait().unwrap(), 0);
+
+        let mut proc = ProcAttr::cmd(batch.to_string())
+            .env("TEST_ENV".to_string(), "NOT_CORRENT_VALUE".to_string())
+            .spawn()
+            .unwrap();
+        assert_eq!(proc.wait().unwrap(), 1);
+
+        // not set
+        let mut proc = ProcAttr::cmd(batch.to_string()).spawn().unwrap();
+        assert_eq!(proc.wait().unwrap(), 1);
+    }
+
+    #[test]
+    fn env_block_test() {
+        assert_eq!(
+            environment_block_unicode(HashMap::from_iter([("asd".to_string(), "qwe".to_string())])),
+            str_to_utf16("asd=qwe\0\0")
+        );
+        assert!(matches!(environment_block_unicode(HashMap::from_iter([
+                ("asd".to_string(), "qwe".to_string()),
+                ("zxc".to_string(), "123".to_string())
+            ])), s if s == str_to_utf16("asd=qwe\0zxc=123\0\0") || s == str_to_utf16("zxc=123\0asd=qwe\0\0")));
+        assert_eq!(
+            environment_block_unicode(HashMap::from_iter([])),
+            str_to_utf16("\0\0")
+        );
+    }
+
+    fn str_to_utf16(s: impl AsRef<str>) -> Vec<u16> {
+        s.as_ref().encode_utf16().collect()
     }
 }
