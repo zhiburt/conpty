@@ -72,9 +72,18 @@ impl Proc {
         unsafe { TerminateProcess(self._proc.hProcess, code).ok() }
     }
 
-    pub fn wait(&self) -> windows::Result<u32> {
+    pub fn wait(&self, timeout_millis: Option<u32>) -> windows::Result<u32> {
         unsafe {
-            WaitForSingleObject(self._proc.hProcess, INFINITE);
+            match timeout_millis {
+                Some(timeout) => {
+                    if WaitForSingleObject(self._proc.hProcess, timeout) == WAIT_TIMEOUT {
+                        return Err(windows::Error::new(HRESULT::from_thread(), "Timeout is reached"));
+                    }
+                }
+                None => {
+                    WaitForSingleObject(self._proc.hProcess, INFINITE);
+                }
+            }
 
             let mut code = 0;
             GetExitCodeProcess(self._proc.hProcess, &mut code).ok()?;
@@ -434,17 +443,17 @@ mod tests {
             .env("TEST_ENV".to_string(), "123456".to_string())
             .spawn()
             .unwrap();
-        assert_eq!(proc.wait().unwrap(), 0);
+        assert_eq!(proc.wait(None).unwrap(), 0);
 
         let mut proc = ProcAttr::cmd(batch.to_string())
             .env("TEST_ENV".to_string(), "NOT_CORRENT_VALUE".to_string())
             .spawn()
             .unwrap();
-        assert_eq!(proc.wait().unwrap(), 1);
+        assert_eq!(proc.wait(None).unwrap(), 1);
 
         // not set
         let mut proc = ProcAttr::cmd(batch.to_string()).spawn().unwrap();
-        assert_eq!(proc.wait().unwrap(), 1);
+        assert_eq!(proc.wait(None).unwrap(), 1);
     }
 
     #[test]
