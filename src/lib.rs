@@ -6,7 +6,7 @@ mod bindings {
 
 use bindings::{
     Windows::Win32::Foundation::CloseHandle,
-    Windows::Win32::Foundation::{HANDLE, PWSTR},
+    Windows::Win32::Foundation::{HANDLE, PWSTR, DuplicateHandle, DUPLICATE_SAME_ACCESS},
     Windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
         FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -21,7 +21,7 @@ use bindings::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
         InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
         WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT,
+        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT, GetCurrentProcess,
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
 };
@@ -32,10 +32,13 @@ use std::os::windows::io::FromRawHandle;
 use std::{mem::size_of, ptr::null_mut};
 use windows::HRESULT;
 
+pub use windows::Error;
+
 pub fn spawn(cmd: impl Into<String>) -> windows::Result<Proc> {
     Proc::spawn(ProcAttr::cmd(cmd.into()))
 }
 
+#[derive(Debug)]
 pub struct Proc {
     pty_input: HANDLE,
     pty_output: HANDLE,
@@ -101,13 +104,23 @@ impl Proc {
     }
 
     pub fn pty_input(&self) -> io::Result<File> {
-        let pty_input = unsafe { File::from_raw_handle(self.pty_input.0 as _) };
-        Ok(pty_input)
+        let mut cloned_handle = HANDLE::default();
+        unsafe {
+            DuplicateHandle (unsafe { GetCurrentProcess() }, self.pty_input, unsafe { GetCurrentProcess() }, &mut cloned_handle, 0, false, DUPLICATE_SAME_ACCESS).ok().unwrap()
+        }
+
+        let pty_input = unsafe { File::from_raw_handle(cloned_handle.0 as _) };
+        pty_input.try_clone()
     }
 
     pub fn pty_output(&self) -> io::Result<File> {
-        let pty_output = unsafe { File::from_raw_handle(self.pty_output.0 as _) };
-        Ok(pty_output)
+        let mut cloned_handle = HANDLE::default();
+        unsafe {
+            DuplicateHandle (unsafe { GetCurrentProcess() }, self.pty_output, unsafe { GetCurrentProcess() }, &mut cloned_handle, 0, false, DUPLICATE_SAME_ACCESS).ok().unwrap()
+        }
+
+        let pty_output = unsafe { File::from_raw_handle(cloned_handle.0 as _) };
+        pty_output.try_clone()
     }
 }
 
@@ -420,10 +433,9 @@ mod tests {
     use std::io::prelude::*;
     use std::iter::FromIterator;
 
-    // not sure if's desired behaiviour
     #[test]
-    pub fn close_one_pty_input_close_others() {
-        let mut proc = spawn("cmd").unwrap();
+    pub fn close_one_pty_input_doesnt_close_others() {
+        let proc = spawn("cmd").unwrap();
         let writer1 = proc.pty_input().unwrap();
         let mut writer2 = proc.pty_input().unwrap();
 
@@ -431,7 +443,20 @@ mod tests {
 
         drop(writer1);
 
-        assert!(writer2.write(b"").is_err());
+        assert!(writer2.write(b"").is_ok());
+    }
+    
+    #[test]
+    pub fn close_one_pty_output_doesnt_close_others() {
+        let proc = spawn("cmd").unwrap();
+        let mut reader1 = proc.pty_output().unwrap();
+        let mut reader2 = proc.pty_output().unwrap();
+
+        assert!(reader1.read(&mut []).is_ok());
+
+        drop(reader1);
+
+        assert!(reader2.read(&mut []).is_ok());
     }
 
     // not sure if's desired behaiviour
@@ -439,20 +464,20 @@ mod tests {
     #[test]
     pub fn env_parameter() {
         let batch = r#"if "%TEST_ENV%"=="123456" (exit 0) else (exit 1)"#;
-        let mut proc = ProcAttr::cmd(batch.to_string())
+        let proc = ProcAttr::cmd(batch.to_string())
             .env("TEST_ENV".to_string(), "123456".to_string())
             .spawn()
             .unwrap();
         assert_eq!(proc.wait(None).unwrap(), 0);
 
-        let mut proc = ProcAttr::cmd(batch.to_string())
+        let proc = ProcAttr::cmd(batch.to_string())
             .env("TEST_ENV".to_string(), "NOT_CORRENT_VALUE".to_string())
             .spawn()
             .unwrap();
         assert_eq!(proc.wait(None).unwrap(), 1);
 
         // not set
-        let mut proc = ProcAttr::cmd(batch.to_string()).spawn().unwrap();
+        let proc = ProcAttr::cmd(batch.to_string()).spawn().unwrap();
         assert_eq!(proc.wait(None).unwrap(), 1);
     }
 

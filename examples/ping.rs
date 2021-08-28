@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 
 fn main() {
-    let mut proc = conpty::spawn("ping").unwrap();
+    let proc = conpty::spawn("ping").unwrap();
     let mut reader = proc.pty_output().unwrap();
     let mut writer = proc.pty_input().unwrap();
 
