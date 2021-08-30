@@ -8,7 +8,7 @@ pub(crate) mod bindings {
 
 use bindings::{
     Windows::Win32::Foundation::CloseHandle,
-    Windows::Win32::Foundation::{HANDLE, PWSTR, DuplicateHandle, DUPLICATE_SAME_ACCESS},
+    Windows::Win32::Foundation::{HANDLE, PWSTR},
     Windows::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
         FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -18,20 +18,17 @@ use bindings::{
         ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
         ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
     },
-    Windows::Win32::System::Pipes::{CreatePipe, SetNamedPipeHandleState, PIPE_NOWAIT},
+    Windows::Win32::System::Pipes::CreatePipe,
     Windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
         InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
         WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT, GetCurrentProcess,
+        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT,
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
 };
 
-use io as pipe_io;
 use std::collections::HashMap;
-use std::fs::File;
-use std::os::windows::io::FromRawHandle;
 use std::{mem::size_of, ptr::null_mut};
 use windows::HRESULT;
 
@@ -83,7 +80,10 @@ impl Proc {
             match timeout_millis {
                 Some(timeout) => {
                     if WaitForSingleObject(self._proc.hProcess, timeout) == WAIT_TIMEOUT {
-                        return Err(windows::Error::new(HRESULT::from_thread(), "Timeout is reached"));
+                        return Err(windows::Error::new(
+                            HRESULT::from_thread(),
+                            "Timeout is reached",
+                        ));
                     }
                 }
                 None => {
@@ -446,13 +446,13 @@ mod tests {
         let mut buf = [0; 1028];
         loop {
             match reader.read(&mut buf) {
-                Ok(n) => break,
+                Ok(_) => break,
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
                 Err(err) => Err(err).unwrap(),
             }
         }
     }
-    
+
     #[test]
     pub fn non_blocking_mode_affects_all_readers() {
         let proc = spawn("cmd").unwrap();
@@ -460,7 +460,10 @@ mod tests {
         let mut reader2 = proc.output().unwrap();
         reader2.set_non_blocking_mode().unwrap();
 
-        assert_eq!(reader1.read(&mut [0; 128]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        assert_eq!(
+            reader1.read(&mut [0; 128]).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
     }
 
     // not sure if's desired behaiviour
