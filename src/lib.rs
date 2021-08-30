@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-mod io;
+pub mod io;
 
 pub(crate) mod bindings {
     windows::include_bindings!();

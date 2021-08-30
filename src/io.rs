@@ -24,6 +24,7 @@ use std::io::{Write, Read};
 use std::ptr::null_mut;
 use windows::HRESULT;
 
+#[derive(Debug)]
 pub struct PipeReader {
     handle: HANDLE,
 }
@@ -79,6 +80,7 @@ impl Into<std::fs::File> for PipeReader {
     }
 }
 
+#[derive(Debug)]
 pub struct PipeWriter {
     handle: HANDLE,
 }
