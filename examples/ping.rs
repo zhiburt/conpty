@@ -2,8 +2,8 @@ use std::io::prelude::*;
 
 fn main() {
     let proc = conpty::spawn("ping").unwrap();
-    let mut reader = proc.pty_output().unwrap();
-    let mut writer = proc.pty_input().unwrap();
+    let mut reader = proc.output().unwrap();
+    let mut writer = proc.input().unwrap();
 
     println!("Process has pid={}", proc.pid());
 

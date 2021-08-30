@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
-mod bindings {
+mod io;
+
+pub(crate) mod bindings {
     windows::include_bindings!();
 }
 
@@ -16,7 +18,7 @@ use bindings::{
         ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
         ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
     },
-    Windows::Win32::System::Pipes::CreatePipe,
+    Windows::Win32::System::Pipes::{CreatePipe, SetNamedPipeHandleState, PIPE_NOWAIT},
     Windows::Win32::System::Threading::{
         CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
         InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
@@ -25,9 +27,10 @@ use bindings::{
     },
     Windows::Win32::System::WindowsProgramming::INFINITE,
 };
+
+use io as pipe_io;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io;
 use std::os::windows::io::FromRawHandle;
 use std::{mem::size_of, ptr::null_mut};
 use windows::HRESULT;
@@ -103,24 +106,12 @@ impl Proc {
         }
     }
 
-    pub fn pty_input(&self) -> io::Result<File> {
-        let mut cloned_handle = HANDLE::default();
-        unsafe {
-            DuplicateHandle (unsafe { GetCurrentProcess() }, self.pty_input, unsafe { GetCurrentProcess() }, &mut cloned_handle, 0, false, DUPLICATE_SAME_ACCESS).ok().unwrap()
-        }
-
-        let pty_input = unsafe { File::from_raw_handle(cloned_handle.0 as _) };
-        pty_input.try_clone()
+    pub fn input(&self) -> std::io::Result<io::PipeWriter> {
+        io::PipeWriter::new(self.pty_input).try_clone()
     }
 
-    pub fn pty_output(&self) -> io::Result<File> {
-        let mut cloned_handle = HANDLE::default();
-        unsafe {
-            DuplicateHandle (unsafe { GetCurrentProcess() }, self.pty_output, unsafe { GetCurrentProcess() }, &mut cloned_handle, 0, false, DUPLICATE_SAME_ACCESS).ok().unwrap()
-        }
-
-        let pty_output = unsafe { File::from_raw_handle(cloned_handle.0 as _) };
-        pty_output.try_clone()
+    pub fn output(&self) -> std::io::Result<io::PipeReader> {
+        io::PipeReader::new(self.pty_output).try_clone()
     }
 }
 
@@ -436,8 +427,8 @@ mod tests {
     #[test]
     pub fn close_one_pty_input_doesnt_close_others() {
         let proc = spawn("cmd").unwrap();
-        let writer1 = proc.pty_input().unwrap();
-        let mut writer2 = proc.pty_input().unwrap();
+        let writer1 = proc.input().unwrap();
+        let mut writer2 = proc.input().unwrap();
 
         assert!(writer2.write(b"").is_ok());
 
@@ -445,18 +436,31 @@ mod tests {
 
         assert!(writer2.write(b"").is_ok());
     }
+
+    #[test]
+    pub fn non_blocking_read() {
+        let proc = spawn("cmd").unwrap();
+        let mut reader = proc.output().unwrap();
+        reader.set_non_blocking_mode().unwrap();
+
+        let mut buf = [0; 1028];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(n) => break,
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(err) => Err(err).unwrap(),
+            }
+        }
+    }
     
     #[test]
-    pub fn close_one_pty_output_doesnt_close_others() {
+    pub fn non_blocking_mode_affects_all_readers() {
         let proc = spawn("cmd").unwrap();
-        let mut reader1 = proc.pty_output().unwrap();
-        let mut reader2 = proc.pty_output().unwrap();
+        let mut reader1 = proc.output().unwrap();
+        let mut reader2 = proc.output().unwrap();
+        reader2.set_non_blocking_mode().unwrap();
 
-        assert!(reader1.read(&mut []).is_ok());
-
-        drop(reader1);
-
-        assert!(reader2.read(&mut []).is_ok());
+        assert_eq!(reader1.read(&mut [0; 128]).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
     }
 
     // not sure if's desired behaiviour

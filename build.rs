@@ -5,7 +5,7 @@ fn main() {
         Windows::Win32::System::Pipes::*,
         Windows::Win32::System::Threading::*,
         Windows::Win32::System::SystemServices::*,
-        Windows::Win32::System::WindowsProgramming::INFINITE,
+        Windows::Win32::System::WindowsProgramming::{INFINITE, PIPE_WAIT},
         Windows::Win32::Storage::FileSystem::*,
         Windows::Win32::Security::SECURITY_ATTRIBUTES,
     };
