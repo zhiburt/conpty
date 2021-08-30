@@ -107,11 +107,24 @@ impl Proc {
     }
 
     pub fn input(&self) -> std::io::Result<io::PipeWriter> {
-        io::PipeWriter::new(self.pty_input).try_clone()
+        // see [Self::output]
+        io::clone_handle(self.pty_input).map(io::PipeWriter::new)
     }
 
     pub fn output(&self) -> std::io::Result<io::PipeReader> {
-        io::PipeReader::new(self.pty_output).try_clone()
+        // It's crusial to clone first and not affect original HANDLE
+        // as closing it closes all other's handles even though it's kindof unxpected.
+        //
+        // "
+        // Closing a handle does not close the object.  It merely reduces the
+        // "reference count".  When the reference count goes to zero, the object
+        // itself is closed.  So, if you have a file handle, and you duplicate that
+        // handle, the file now has two "references".  If you close one handle, the
+        // file still has one reference, so the FILE cannot be closed.
+        // "
+        // 
+        // https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/1754715c-45b7-4d8c-ba56-a501ccaec12c/closehandle-amp-duplicatehandle?forum=windowsgeneraldevelopmentissues
+        io::clone_handle(self.pty_output).map(io::PipeReader::new)
     }
 }
 
@@ -460,6 +473,21 @@ mod tests {
         let mut reader2 = proc.output().unwrap();
         reader2.set_non_blocking_mode().unwrap();
 
+        assert_eq!(
+            reader1.read(&mut [0; 128]).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    pub fn dropping_one_reader_doesnt_affect_others() {
+        let proc = spawn("cmd").unwrap();
+        let mut reader1 = proc.output().unwrap();
+        let reader2 = proc.output().unwrap();
+
+        drop(reader2);
+
+        reader1.set_non_blocking_mode().unwrap();
         assert_eq!(
             reader1.read(&mut [0; 128]).unwrap_err().kind(),
             std::io::ErrorKind::WouldBlock

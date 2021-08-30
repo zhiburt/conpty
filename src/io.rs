@@ -1,5 +1,5 @@
 use crate::bindings::{
-    Windows::Win32::Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
+    Windows::Win32::Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE, CloseHandle},
     Windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile},
     Windows::Win32::System::Pipes::{SetNamedPipeHandleState, PIPE_NOWAIT},
     Windows::Win32::System::Threading::GetCurrentProcess,
@@ -76,6 +76,12 @@ impl Read for PipeReader {
     }
 }
 
+impl Drop for PipeReader {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.handle).ok().unwrap(); }
+    }
+}
+
 impl Into<std::fs::File> for PipeReader {
     fn into(self) -> std::fs::File {
         use std::os::windows::io::FromRawHandle;
@@ -125,7 +131,7 @@ impl Into<std::fs::File> for PipeWriter {
     }
 }
 
-fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
+pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
     let mut cloned_handle = HANDLE::default();
     unsafe {
         DuplicateHandle(
