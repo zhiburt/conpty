@@ -16,7 +16,7 @@ use bindings::{
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
         ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
     },
     Windows::Win32::System::Pipes::CreatePipe,
     Windows::Win32::System::Threading::{
@@ -104,6 +104,25 @@ impl Proc {
             let ret = WaitForSingleObject(self._proc.hProcess, 0);
             ret == WAIT_TIMEOUT
         }
+    }
+
+    // todo: determine if this function is usefull?
+    pub fn set_echo(&self, on: bool) -> windows::Result<()> {
+        let stdout_h = stdout_handle()?;
+        unsafe {
+            let mut mode = CONSOLE_MODE::default();
+            GetConsoleMode(stdout_h, &mut mode).ok()?;
+
+            match on {
+                true => mode |= ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT,
+                false => mode &= CONSOLE_MODE(!ENABLE_ECHO_INPUT.0),
+            };
+
+            SetConsoleMode(stdout_h, mode).ok()?;
+            CloseHandle(stdout_h);
+        }
+
+        Ok(())
     }
 
     pub fn input(&self) -> std::io::Result<io::PipeWriter> {
