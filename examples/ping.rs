@@ -6,7 +6,7 @@ fn main() {
 
     println!("Process has pid={}", proc.pid());
 
-    while proc.is_alive() {};
+    while proc.is_alive() {}
 
     // currently I didn't figure out  way how to savely && easily read from pipe until EOF
     let mut buf = [0; 1028 * 10 * 10];

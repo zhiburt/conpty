@@ -122,7 +122,7 @@ impl Proc {
         // handle, the file now has two "references".  If you close one handle, the
         // file still has one reference, so the FILE cannot be closed.
         // "
-        // 
+        //
         // https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/1754715c-45b7-4d8c-ba56-a501ccaec12c/closehandle-amp-duplicatehandle?forum=windowsgeneraldevelopmentissues
         io::clone_handle(self.pty_output).map(io::PipeReader::new)
     }
@@ -166,7 +166,7 @@ impl ProcAttr {
         // set lpCommandLine to the following arguments: /c plus the name of the batch file.
         //
         // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
-        let inter = std::env::var("COMSPEC").unwrap();
+        let inter = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd".to_string());
         let args = format!("/C {:?}", file);
 
         Self::default().application(inter).commandline(args)
@@ -177,7 +177,7 @@ impl ProcAttr {
         // set lpCommandLine to the following arguments: /c plus the name of the batch file.
         //
         // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
-        let inter = std::env::var("COMSPEC").unwrap();
+        let inter = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd".to_string());
         let args = format!("{} /C {}", inter, commandline);
 
         Self::default().commandline(args)

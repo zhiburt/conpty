@@ -1,12 +1,12 @@
 use crate::bindings::{
-    Windows::Win32::Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE, CloseHandle},
+    Windows::Win32::Foundation::{CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
     Windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile},
     Windows::Win32::System::Pipes::{SetNamedPipeHandleState, PIPE_NOWAIT},
     Windows::Win32::System::Threading::GetCurrentProcess,
     Windows::Win32::System::WindowsProgramming::PIPE_WAIT,
 };
 
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::ptr::null_mut;
 use windows::HRESULT;
 
@@ -23,12 +23,12 @@ impl PipeReader {
     // Affects all dupped descriptors.
     //
     // Mainly developed to not pile down libraries to include any windows API crate.
-    pub fn set_non_blocking_mode(&mut self) -> std::io::Result<()> {
+    pub fn set_non_blocking_mode(&mut self) -> io::Result<()> {
         let mut nowait = PIPE_NOWAIT;
         unsafe {
             SetNamedPipeHandleState(self.handle, &mut nowait.0, null_mut(), null_mut())
                 .ok()
-                .unwrap();
+                .map_err(win_error_to_io)?;
         }
         Ok(())
     }
@@ -36,12 +36,12 @@ impl PipeReader {
     // Affects all dupped descriptors.
     //
     // Mainly developed to not pile down libraries to include any windows API crate.
-    pub fn set_blocking_mode(&mut self) -> std::io::Result<()> {
+    pub fn set_blocking_mode(&mut self) -> io::Result<()> {
         let mut nowait = PIPE_WAIT;
         unsafe {
             SetNamedPipeHandleState(self.handle, &mut nowait, null_mut(), null_mut())
                 .ok()
-                .unwrap();
+                .map_err(win_error_to_io)?;
         }
         Ok(())
     }
@@ -71,14 +71,16 @@ impl Read for PipeReader {
             Err(err) if err.code() == HRESULT::from_win32(232) => {
                 Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, err))
             }
-            Err(err) => Err(err).unwrap(),
+            Err(err) => Err(win_error_to_io(err)),
         }
     }
 }
 
 impl Drop for PipeReader {
     fn drop(&mut self) {
-        unsafe { CloseHandle(self.handle).ok().unwrap(); }
+        unsafe {
+            CloseHandle(self.handle).ok().unwrap();
+        }
     }
 }
 
@@ -112,14 +114,18 @@ impl Write for PipeWriter {
         unsafe {
             WriteFile(self.handle, buf.as_ptr() as _, buf_size, &mut n, null_mut())
                 .ok()
-                .unwrap();
+                .map_err(win_error_to_io)?;
         }
 
         Ok(n as usize)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        unsafe { FlushFileBuffers(self.handle).ok().unwrap() }
+        unsafe {
+            FlushFileBuffers(self.handle)
+                .ok()
+                .map_err(win_error_to_io)?;
+        }
         Ok(())
     }
 }
@@ -144,8 +150,13 @@ pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
             DUPLICATE_SAME_ACCESS,
         )
         .ok()
-        .unwrap();
+        .map_err(win_error_to_io)?;
     }
 
     Ok(cloned_handle)
+}
+
+fn win_error_to_io(err: windows::Error) -> io::Error {
+    let code = err.code();
+    io::Error::from_raw_os_error(code.0 as i32)
 }
