@@ -295,7 +295,7 @@ impl ProcAttr {
 
     /// Spawns a process with set attributes.
     pub fn spawn(self) -> windows::Result<Process> {
-        Proc::spawn(self)
+        Process::spawn(self)
     }
 }
 
