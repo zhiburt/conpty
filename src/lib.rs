@@ -1,3 +1,23 @@
+//! conpty library provides an interface for [ConPTY].
+//!
+//! ```ignore
+//! # // todo: determine why this test timeouts if runnin as a doc test but not as an example.
+//! use std::io::prelude::*;
+//!
+//! fn main() {
+//!     let proc = conpty::spawn("echo Hello World").unwrap();
+//!     let mut reader = proc.output().unwrap();
+//!
+//!     println!("Process has pid={}", proc.pid());
+//!
+//!     proc.wait(None).unwrap();
+//!
+//!     let mut buf = [0; 1028];
+//!     let n = reader.read(&mut buf).unwrap();
+//!     assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
+//! }
+//! ```
+
 #![allow(non_snake_case)]
 
 pub mod io;
