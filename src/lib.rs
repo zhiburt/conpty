@@ -1,4 +1,4 @@
-//! conpty library provides an interface for [ConPTY].
+//! A library which provides an interface for [ConPTY].
 //!
 //! ```ignore
 //! # // todo: determine why this test timeouts if runnin as a doc test but not as an example.
@@ -17,6 +17,8 @@
 //!     assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
 //! }
 //! ```
+//!
+//! [ConPTY]: https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/
 
 #![allow(non_snake_case)]
 
@@ -54,12 +56,15 @@ use windows::HRESULT;
 
 pub use windows::Error;
 
-pub fn spawn(cmd: impl Into<String>) -> windows::Result<Proc> {
-    Proc::spawn(ProcAttr::cmd(cmd.into()))
+/// Spawns a command using `cmd.exe`.
+pub fn spawn(cmd: impl Into<String>) -> windows::Result<Process> {
+    Process::spawn(ProcAttr::cmd(cmd.into()))
 }
 
+/// The structure is resposible for interations with spawned process.
+/// It handles IO and other operations related to a spawned process.
 #[derive(Debug)]
-pub struct Proc {
+pub struct Process {
     pty_input: HANDLE,
     pty_output: HANDLE,
     _proc: PROCESS_INFORMATION,
@@ -67,7 +72,7 @@ pub struct Proc {
     _console: HPCON,
 }
 
-impl Proc {
+impl Process {
     fn spawn(attr: ProcAttr) -> windows::Result<Self> {
         enableVirtualTerminalSequenceProcessing()?;
         let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
@@ -178,7 +183,7 @@ impl Proc {
     }
 }
 
-impl Drop for Proc {
+impl Drop for Process {
     fn drop(&mut self) {
         unsafe {
             ClosePseudoConsole(self._console);
@@ -289,7 +294,7 @@ impl ProcAttr {
     }
 
     /// Spawns a process with set attributes.
-    pub fn spawn(self) -> windows::Result<Proc> {
+    pub fn spawn(self) -> windows::Result<Process> {
         Proc::spawn(self)
     }
 }
