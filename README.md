@@ -6,7 +6,7 @@ It is originally developed to be a windows backend for [zhiburt/expectrl](https:
 
 ## Get started
 
-```ignore
+```rust
 use std::io::prelude::*;
 
 fn main() {
