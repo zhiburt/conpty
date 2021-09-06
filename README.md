@@ -1,4 +1,5 @@
-# conpty
+# conpty [![Crate](https://img.shields.io/crates/v/conpty)](https://crates.io/crates/conpty) [![docs.rs](https://img.shields.io/docsrs/conpty?color=blue)](https://docs.rs/conpty/0.1.0/conpty/) [![license](https://img.shields.io/crates/l/conpty)](./LICENSE.txt)
+
 
 A library which provides an interface for [ConPTY](https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/).
 
