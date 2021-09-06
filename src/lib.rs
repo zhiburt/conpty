@@ -16,7 +16,7 @@ use bindings::{
     Windows::Win32::System::Console::{
         ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
         ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
-        ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
+        ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
     },
     Windows::Win32::System::Pipes::CreatePipe,
     Windows::Win32::System::Threading::{
@@ -344,8 +344,6 @@ fn execProc(
     if attr.commandline.is_none() && attr.application.is_none() {
         panic!("")
     }
-
-    println!("attr {:?}", attr);
 
     let mut commandline = pwstr_param(attr.commandline);
     let mut application = pwstr_param(attr.application);
