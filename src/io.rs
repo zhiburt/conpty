@@ -10,19 +10,24 @@ use std::io::{self, Read, Write};
 use std::ptr::null_mut;
 use windows::HRESULT;
 
+/// PipeReader wraps a win32 pipe to provide a [std::io::Read] interface.
+/// It also provides a non_blocking mode settings.
 #[derive(Debug)]
 pub struct PipeReader {
     handle: HANDLE,
 }
 
 impl PipeReader {
+    /// Returns a new instance of PipeReader.
     pub fn new(handle: HANDLE) -> Self {
         Self { handle }
     }
 
-    // Affects all dupped descriptors.
-    //
-    // Mainly developed to not pile down libraries to include any windows API crate.
+    /// Sets a pipe to a non blocking mode.
+    ///
+    /// IMPORTANT: It affects all dupped descriptors (All cloned `HANDLE`s, `FILE`s, `PipeReader`s)
+    ///
+    /// Mainly developed to not pile down libraries to include any windows API crate.
     pub fn set_non_blocking_mode(&mut self) -> io::Result<()> {
         let mut nowait = PIPE_NOWAIT;
         unsafe {
@@ -33,9 +38,11 @@ impl PipeReader {
         Ok(())
     }
 
-    // Affects all dupped descriptors.
-    //
-    // Mainly developed to not pile down libraries to include any windows API crate.
+    /// Sets a pipe to a blocking mode.
+    ///
+    /// IMPORTANT: It affects all dupped descriptors (All cloned `HANDLE`s, `FILE`s, `PipeReader`s)
+    ///
+    /// Mainly developed to not pile down libraries to include any windows API crate.
     pub fn set_blocking_mode(&mut self) -> io::Result<()> {
         let mut nowait = PIPE_WAIT;
         unsafe {
@@ -46,6 +53,9 @@ impl PipeReader {
         Ok(())
     }
 
+    /// Tries to clone a instance to a new one.
+    /// All cloned instances share the same underlaying data so
+    /// Reading from one cloned pipe will affect an original pipe.
     pub fn try_clone(&self) -> std::io::Result<Self> {
         clone_handle(self.handle).map(Self::new)
     }
@@ -91,16 +101,21 @@ impl Into<std::fs::File> for PipeReader {
     }
 }
 
+/// PipeWriter implements [std::io::Write] interface for win32 pipe.
 #[derive(Debug)]
 pub struct PipeWriter {
     handle: HANDLE,
 }
 
 impl PipeWriter {
+    /// Creates a new instance of PipeWriter.
+    ///
+    /// It owns a HANDLE.
     pub fn new(handle: HANDLE) -> Self {
         Self { handle }
     }
 
+    /// Tries to make a clone of PipeWriter.
     pub fn try_clone(&self) -> std::io::Result<Self> {
         clone_handle(self.handle).map(Self::new)
     }
@@ -130,6 +145,14 @@ impl Write for PipeWriter {
     }
 }
 
+impl Drop for PipeWriter {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.handle).ok().unwrap();
+        }
+    }
+}
+
 impl Into<std::fs::File> for PipeWriter {
     fn into(self) -> std::fs::File {
         use std::os::windows::io::FromRawHandle;
@@ -137,6 +160,7 @@ impl Into<std::fs::File> for PipeWriter {
     }
 }
 
+/// clone_handle can be used to clone a general HANDLE.
 pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
     let mut cloned_handle = HANDLE::default();
     unsafe {

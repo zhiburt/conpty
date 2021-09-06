@@ -63,18 +63,22 @@ impl Proc {
         })
     }
 
+    /// Resizes virtuall terminal.
     pub fn resize(&self, x: i16, y: i16) -> windows::Result<()> {
         unsafe { ResizePseudoConsole(self._console, COORD { X: x, Y: y }) }
     }
 
+    /// Returns a process's pid.
     pub fn pid(&self) -> u32 {
         unsafe { GetProcessId(self._proc.hProcess) }
     }
 
+    /// Termianates process with exit_code.
     pub fn exit(&self, code: u32) -> windows::Result<()> {
         unsafe { TerminateProcess(self._proc.hProcess, code).ok() }
     }
 
+    /// Waits before process exists.
     pub fn wait(&self, timeout_millis: Option<u32>) -> windows::Result<u32> {
         unsafe {
             match timeout_millis {
@@ -98,6 +102,10 @@ impl Proc {
         }
     }
 
+    /// Is alive determines if a process is still running.
+    ///
+    /// IMPORTANT: Beware to use it in a way to stop reading when is_alive is false.
+    //  Because at the point of calling method it may be alive but at the point of `read` call it may already not.
     pub fn is_alive(&self) -> bool {
         // https://stackoverflow.com/questions/1591342/c-how-to-determine-if-a-windows-process-is-running/5303889
         unsafe {
@@ -106,8 +114,9 @@ impl Proc {
         }
     }
 
-    // todo: determine if this function is usefull?
+    /// Sets echo mode for a session.
     pub fn set_echo(&self, on: bool) -> windows::Result<()> {
+        // todo: determine if this function is usefull and it works?
         let stdout_h = stdout_handle()?;
         unsafe {
             let mut mode = CONSOLE_MODE::default();
@@ -125,11 +134,13 @@ impl Proc {
         Ok(())
     }
 
+    /// Returns a pipe writer to conPTY.
     pub fn input(&self) -> std::io::Result<io::PipeWriter> {
         // see [Self::output]
         io::clone_handle(self.pty_input).map(io::PipeWriter::new)
     }
 
+    /// Returns a pipe reader from conPTY.
     pub fn output(&self) -> std::io::Result<io::PipeReader> {
         // It's crusial to clone first and not affect original HANDLE
         // as closing it closes all other's handles even though it's kindof unxpected.
@@ -164,12 +175,18 @@ impl Drop for Proc {
     }
 }
 
-// ProcAttr represents parameters for process to be spawned.
-//
-// Generally to run a common process you can set commandline to a path to binary.
-// But if you're trying to spawn just a command in shell if must provide your shell first, like cmd.exe.
-// One more time, cmd.exe is not needed if you're spawning an .exe file - it is necessary if you're trying
-// to spawn a anything else like .bat file.
+/// ProcAttr represents parameters for process to be spawned.
+///
+/// Interface is inspired by win32 `CreateProcess` function.
+///
+/// Generally to run a common process you can set commandline to a path to binary.
+/// But if you're trying to spawn just a command in shell if must provide your shell first, like cmd.exe.
+///
+/// # Example
+///
+/// ```ignore
+/// let attr = conpty::ProcAttr::default().commandline("pwsh").arg("echo", "world");
+/// ```
 #[derive(Default, Debug)]
 pub struct ProcAttr {
     application: Option<String>,
@@ -180,68 +197,78 @@ pub struct ProcAttr {
 }
 
 impl ProcAttr {
-    pub fn batch(file: String) -> Self {
+    /// Runs a batch file in a default `CMD` interpretator.
+    pub fn batch(file: impl AsRef<str>) -> Self {
         // To run a batch file, you must start the command interpreter; set lpApplicationName to cmd.exe and
         // set lpCommandLine to the following arguments: /c plus the name of the batch file.
         //
         // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
         let inter = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd".to_string());
-        let args = format!("/C {:?}", file);
+        let args = format!("/C {:?}", file.as_ref());
 
         Self::default().application(inter).commandline(args)
     }
 
-    pub fn cmd(commandline: String) -> Self {
-        // To run a batch file, you must start the command interpreter; set lpApplicationName to cmd.exe and
-        // set lpCommandLine to the following arguments: /c plus the name of the batch file.
-        //
-        // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
-        let inter = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd".to_string());
-        let args = format!("{} /C {}", inter, commandline);
+    /// Runs a command from `cmd.exe`
+    pub fn cmd(commandline: impl AsRef<str>) -> Self {
+        let args = format!("cmd /C {}", commandline.as_ref());
 
         Self::default().commandline(args)
     }
 
-    pub fn commandline(mut self, cmd: String) -> Self {
-        self.commandline = Some(cmd);
+    /// Sets commandline argument.
+    pub fn commandline(mut self, cmd: impl Into<String>) -> Self {
+        self.commandline = Some(cmd.into());
         self
     }
 
-    pub fn application(mut self, application: String) -> Self {
-        self.application = Some(application);
+    /// Sets application argument.
+    /// Must be a path to a binary.
+    pub fn application(mut self, application: impl Into<String>) -> Self {
+        self.application = Some(application.into());
         self
     }
 
-    pub fn current_dir(mut self, dir: String) -> Self {
-        self.current_dir = Some(dir);
+    /// Sets current dir.
+    pub fn current_dir(mut self, dir: impl Into<String>) -> Self {
+        self.current_dir = Some(dir.into());
         self
     }
 
+    /// Sets a list of arguments as process arguments.
     pub fn args(mut self, args: Vec<String>) -> Self {
         self.args = args;
         self
     }
 
-    pub fn arg(mut self, arg: String) -> Self {
-        self.args.push(arg);
+    /// Adds an argument to a list of process arguments.
+    pub fn arg(mut self, arg: impl Into<String>) -> Self {
+        self.args.push(arg.into());
         self
     }
 
+    /// Sets a list of env variables as process env variables.
+    ///
+    /// If envs isn't set they will be inhirited from parent process.
     pub fn envs(mut self, env: HashMap<String, String>) -> Self {
         self.env = Some(env);
         self
     }
 
-    pub fn env(mut self, key: String, value: String) -> Self {
+    /// Adds an env variable to process env variables list.
+    ///
+    /// If any envs isn't added the environment list will be inhirited from parent process.
+    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         match &mut self.env {
             Some(env) => {
-                env.insert(key, value);
+                env.insert(key.into(), value.into());
                 self
             }
-            None => self.envs(HashMap::new()).env(key, value),
+            None => self.envs(HashMap::new()).env(key.into(), value.into()),
         }
     }
 
+    /// Spawns a process with set attributes.
     pub fn spawn(self) -> windows::Result<Proc> {
         Proc::spawn(self)
     }
