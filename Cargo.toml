@@ -13,7 +13,7 @@ keywords = ["win32", "ConPTY", "shell", "expect", "expectrl"]
 readme = "README.md"
 
 [dependencies]
-windows = "0.18.0"
+windows = "0.19.0"
 
 [build-dependencies]
-windows = "0.18.0"
+windows = "0.19.0"
