@@ -1,11 +1,11 @@
 use crate::bindings::{
-    Windows::Win32::Foundation::{CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
+    Windows::Win32::Foundation::{CloseHandle, HANDLE},
     Windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile},
     Windows::Win32::System::Pipes::{SetNamedPipeHandleState, PIPE_NOWAIT},
-    Windows::Win32::System::Threading::GetCurrentProcess,
     Windows::Win32::System::WindowsProgramming::PIPE_WAIT,
 };
 
+use crate::util::{clone_handle, win_error_to_io};
 use std::io::{self, Read, Write};
 use std::ptr::null_mut;
 use windows::HRESULT;
@@ -158,29 +158,4 @@ impl Into<std::fs::File> for PipeWriter {
         use std::os::windows::io::FromRawHandle;
         unsafe { std::fs::File::from_raw_handle(self.handle.0 as _) }
     }
-}
-
-/// clone_handle can be used to clone a general HANDLE.
-pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
-    let mut cloned_handle = HANDLE::default();
-    unsafe {
-        DuplicateHandle(
-            GetCurrentProcess(),
-            handle,
-            GetCurrentProcess(),
-            &mut cloned_handle,
-            0,
-            false,
-            DUPLICATE_SAME_ACCESS,
-        )
-        .ok()
-        .map_err(win_error_to_io)?;
-    }
-
-    Ok(cloned_handle)
-}
-
-fn win_error_to_io(err: windows::Error) -> io::Error {
-    let code = err.code();
-    io::Error::from_raw_os_error(code.0 as i32)
 }

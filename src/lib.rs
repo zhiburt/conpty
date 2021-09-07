@@ -23,6 +23,7 @@
 #![allow(non_snake_case)]
 
 pub mod io;
+pub mod util;
 
 pub(crate) mod bindings {
     windows::include_bindings!();
@@ -133,10 +134,7 @@ impl Process {
     //  Because at the point of calling method it may be alive but at the point of `read` call it may already not.
     pub fn is_alive(&self) -> bool {
         // https://stackoverflow.com/questions/1591342/c-how-to-determine-if-a-windows-process-is-running/5303889
-        unsafe {
-            let ret = WaitForSingleObject(self._proc.hProcess, 0);
-            ret == WAIT_TIMEOUT
-        }
+        unsafe { WaitForSingleObject(self._proc.hProcess, 0) == WAIT_TIMEOUT }
     }
 
     /// Sets echo mode for a session.
@@ -162,7 +160,7 @@ impl Process {
     /// Returns a pipe writer to conPTY.
     pub fn input(&self) -> std::io::Result<io::PipeWriter> {
         // see [Self::output]
-        io::clone_handle(self.pty_input).map(io::PipeWriter::new)
+        util::clone_handle(self.pty_input).map(io::PipeWriter::new)
     }
 
     /// Returns a pipe reader from conPTY.
@@ -179,7 +177,7 @@ impl Process {
         // "
         //
         // https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/1754715c-45b7-4d8c-ba56-a501ccaec12c/closehandle-amp-duplicatehandle?forum=windowsgeneraldevelopmentissues
-        io::clone_handle(self.pty_output).map(io::PipeReader::new)
+        util::clone_handle(self.pty_output).map(io::PipeReader::new)
     }
 }
 
