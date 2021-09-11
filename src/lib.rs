@@ -25,9 +25,7 @@
 pub mod io;
 pub mod util;
 
-pub(crate) mod bindings {
-    windows::include_bindings!();
-}
+pub(crate) use conpty_bindings as bindings;
 
 use bindings::{
     Windows::Win32::Foundation::CloseHandle,

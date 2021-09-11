@@ -1,12 +1,10 @@
 use crate::bindings::{
     Windows::Win32::Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
     Windows::Win32::System::Console::{
-        GetStdHandle, STD_INPUT_HANDLE,
-        CONSOLE_MODE,
-        ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT,
-        ENABLE_WINDOW_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_EXTENDED_FLAGS,
-        ENABLE_INSERT_MODE, ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT,
-        SetConsoleMode, GetConsoleMode,
+        GetConsoleMode, GetStdHandle, SetConsoleMode, CONSOLE_MODE, ENABLE_ECHO_INPUT,
+        ENABLE_EXTENDED_FLAGS, ENABLE_INSERT_MODE, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT,
+        ENABLE_PROCESSED_INPUT, ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT,
+        ENABLE_WINDOW_INPUT, STD_INPUT_HANDLE,
     },
     Windows::Win32::System::Threading::GetCurrentProcess,
     Windows::Win32::System::Threading::{WaitForSingleObject, WAIT_OBJECT_0},
@@ -26,24 +24,28 @@ pub fn set_raw() -> windows::Result<()> {
 
 pub fn _set_raw(stdin: HANDLE) -> windows::Result<()> {
     let mut mode = CONSOLE_MODE::default();
-    unsafe { GetConsoleMode(stdin, &mut mode).ok()?; }
+    unsafe {
+        GetConsoleMode(stdin, &mut mode).ok()?;
+    }
 
     mode &= CONSOLE_MODE(!ENABLE_ECHO_INPUT.0);
-	mode &= CONSOLE_MODE(!ENABLE_LINE_INPUT.0);
-	mode &= CONSOLE_MODE(!ENABLE_MOUSE_INPUT.0);
-	mode &= CONSOLE_MODE(!ENABLE_WINDOW_INPUT.0);
-	mode &= CONSOLE_MODE(!ENABLE_PROCESSED_INPUT.0);
+    mode &= CONSOLE_MODE(!ENABLE_LINE_INPUT.0);
+    mode &= CONSOLE_MODE(!ENABLE_MOUSE_INPUT.0);
+    mode &= CONSOLE_MODE(!ENABLE_WINDOW_INPUT.0);
+    mode &= CONSOLE_MODE(!ENABLE_PROCESSED_INPUT.0);
 
-	mode |= CONSOLE_MODE(ENABLE_EXTENDED_FLAGS);
-	mode |= CONSOLE_MODE(ENABLE_INSERT_MODE.0);
-	mode |= CONSOLE_MODE(ENABLE_QUICK_EDIT_MODE.0);
+    mode |= CONSOLE_MODE(ENABLE_EXTENDED_FLAGS);
+    mode |= CONSOLE_MODE(ENABLE_INSERT_MODE.0);
+    mode |= CONSOLE_MODE(ENABLE_QUICK_EDIT_MODE.0);
 
     let vtInputSupported = true;
-	if vtInputSupported {
-		mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
-	}
+    if vtInputSupported {
+        mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+    }
 
-    unsafe { SetConsoleMode(stdin, mode).ok()?; }
+    unsafe {
+        SetConsoleMode(stdin, mode).ok()?;
+    }
 
     Ok(())
 }
