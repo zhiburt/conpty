@@ -22,6 +22,7 @@
 
 #![allow(non_snake_case)]
 
+pub mod console;
 pub mod io;
 pub mod util;
 
