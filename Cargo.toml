@@ -14,4 +14,4 @@ readme = "README.md"
 
 [dependencies]
 windows = "0.19.0"
-conpty-bindings = { path = "bindings" }
+conpty-bindings = "0.0.0"
