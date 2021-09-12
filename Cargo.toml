@@ -1,6 +1,6 @@
 [package]
 name = "conpty"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2018"
 authors = ["Maxim Zhiburt <zhiburt@gmail.com>"]
 description = "A library which provides an interface for ConPTY"
