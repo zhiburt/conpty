@@ -27,6 +27,8 @@ pub mod io;
 pub mod util;
 
 use std::collections::HashMap;
+use std::ffi::c_void;
+use std::fmt;
 use std::ptr::null;
 use std::{mem::size_of, ptr::null_mut};
 use windows::core::{IntoParam, Param, Result, HRESULT, HSTRING};
@@ -185,6 +187,17 @@ impl Drop for Process {
             CloseHandle(self.pty_input);
             CloseHandle(self.pty_output);
         }
+    }
+}
+
+impl fmt::Debug for Process {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PipeReader")
+            .field("pty_output", &(self.pty_output.0))
+            .field("pty_output(ptr)", &(self.pty_output.0 as *const c_void))
+            .field("pty_input", &(self.pty_input.0))
+            .field("pty_input(ptr)", &(self.pty_input.0 as *const c_void))
+            .finish_non_exhaustive()
     }
 }
 

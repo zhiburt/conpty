@@ -4,6 +4,8 @@ use windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile}
 use windows::Win32::System::Pipes::{SetNamedPipeHandleState, PIPE_NOWAIT, PIPE_WAIT};
 
 use crate::util::{clone_handle, win_error_to_io};
+use std::ffi::c_void;
+use std::fmt;
 use std::io::{self, Read, Write};
 use std::ptr::null_mut;
 
@@ -96,6 +98,15 @@ impl Into<std::fs::File> for PipeReader {
     }
 }
 
+impl fmt::Debug for PipeReader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PipeReader")
+            .field("handle", &(self.handle.0))
+            .field("handle(ptr)", &(self.handle.0 as *const c_void))
+            .finish()
+    }
+}
+
 /// PipeWriter implements [std::io::Write] interface for win32 pipe.
 pub struct PipeWriter {
     handle: HANDLE,
@@ -151,5 +162,14 @@ impl Into<std::fs::File> for PipeWriter {
     fn into(self) -> std::fs::File {
         use std::os::windows::io::FromRawHandle;
         unsafe { std::fs::File::from_raw_handle(self.handle.0 as _) }
+    }
+}
+
+impl fmt::Debug for PipeWriter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PipeReader")
+            .field("handle", &(self.handle.0))
+            .field("handle(ptr)", &(self.handle.0 as *const c_void))
+            .finish()
     }
 }
