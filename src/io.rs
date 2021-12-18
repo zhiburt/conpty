@@ -1,18 +1,14 @@
-use crate::bindings::{
-    Windows::Win32::Foundation::{CloseHandle, HANDLE},
-    Windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile},
-    Windows::Win32::System::Pipes::{SetNamedPipeHandleState, PIPE_NOWAIT},
-    Windows::Win32::System::WindowsProgramming::PIPE_WAIT,
-};
+use windows::core::HRESULT;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile};
+use windows::Win32::System::Pipes::{SetNamedPipeHandleState, PIPE_NOWAIT, PIPE_WAIT};
 
 use crate::util::{clone_handle, win_error_to_io};
 use std::io::{self, Read, Write};
 use std::ptr::null_mut;
-use windows::HRESULT;
 
 /// PipeReader wraps a win32 pipe to provide a [std::io::Read] interface.
 /// It also provides a non_blocking mode settings.
-#[derive(Debug)]
 pub struct PipeReader {
     handle: HANDLE,
 }
@@ -29,9 +25,8 @@ impl PipeReader {
     ///
     /// Mainly developed to not pile down libraries to include any windows API crate.
     pub fn set_non_blocking_mode(&mut self) -> io::Result<()> {
-        let mut nowait = PIPE_NOWAIT;
         unsafe {
-            SetNamedPipeHandleState(self.handle, &mut nowait.0, null_mut(), null_mut())
+            SetNamedPipeHandleState(self.handle, &PIPE_NOWAIT, null_mut(), null_mut())
                 .ok()
                 .map_err(win_error_to_io)?;
         }
@@ -44,9 +39,8 @@ impl PipeReader {
     ///
     /// Mainly developed to not pile down libraries to include any windows API crate.
     pub fn set_blocking_mode(&mut self) -> io::Result<()> {
-        let mut nowait = PIPE_WAIT;
         unsafe {
-            SetNamedPipeHandleState(self.handle, &mut nowait, null_mut(), null_mut())
+            SetNamedPipeHandleState(self.handle, &PIPE_WAIT, null_mut(), null_mut())
                 .ok()
                 .map_err(win_error_to_io)?;
         }
@@ -78,9 +72,10 @@ impl Read for PipeReader {
         } {
             Ok(()) => Ok(n as usize),
             // https://stackoverflow.com/questions/34504970/non-blocking-read-on-os-pipe-on-windows
-            Err(err) if err.code() == HRESULT::from_win32(232) => {
-                Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, err))
-            }
+            Err(err) if err.code() == HRESULT::from_win32(232) => Err(std::io::Error::new(
+                std::io::ErrorKind::WouldBlock,
+                err.message().to_string(),
+            )),
             Err(err) => Err(win_error_to_io(err)),
         }
     }
@@ -102,7 +97,6 @@ impl Into<std::fs::File> for PipeReader {
 }
 
 /// PipeWriter implements [std::io::Write] interface for win32 pipe.
-#[derive(Debug)]
 pub struct PipeWriter {
     handle: HANDLE,
 }

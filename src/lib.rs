@@ -26,46 +26,38 @@ pub mod console;
 pub mod io;
 pub mod util;
 
-pub(crate) mod bindings {
-    windows::include_bindings!();
-}
-
-use bindings::{
-    Windows::Win32::Foundation::CloseHandle,
-    Windows::Win32::Foundation::{HANDLE, PWSTR},
-    Windows::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
-    },
-    Windows::Win32::System::Console::{
-        ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
-        ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
-        ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
-    },
-    Windows::Win32::System::Pipes::CreatePipe,
-    Windows::Win32::System::Threading::{
-        CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
-        InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
-        WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-        LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW, WAIT_TIMEOUT,
-    },
-    Windows::Win32::System::WindowsProgramming::INFINITE,
-};
-
 use std::collections::HashMap;
+use std::ptr::null;
 use std::{mem::size_of, ptr::null_mut};
-use windows::HRESULT;
+use windows::core::{IntoParam, Param, Result, HRESULT, HSTRING};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, PWSTR, WAIT_TIMEOUT};
+use windows::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
+    FILE_SHARE_WRITE, OPEN_EXISTING,
+};
+use windows::Win32::System::Console::{
+    ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
+    ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
+    ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
+};
+use windows::Win32::System::Pipes::CreatePipe;
+use windows::Win32::System::Threading::{
+    CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
+    InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+    LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
+};
+use windows::Win32::System::WindowsProgramming::INFINITE;
 
-pub use windows::Error;
+pub use windows::core::Error;
 
 /// Spawns a command using `cmd.exe`.
-pub fn spawn(cmd: impl Into<String>) -> windows::Result<Process> {
+pub fn spawn(cmd: impl Into<String>) -> Result<Process> {
     Process::spawn(ProcAttr::cmd(cmd.into()))
 }
 
 /// The structure is resposible for interations with spawned process.
 /// It handles IO and other operations related to a spawned process.
-#[derive(Debug)]
 pub struct Process {
     pty_input: HANDLE,
     pty_output: HANDLE,
@@ -75,7 +67,7 @@ pub struct Process {
 }
 
 impl Process {
-    fn spawn(attr: ProcAttr) -> windows::Result<Self> {
+    fn spawn(attr: ProcAttr) -> Result<Self> {
         enableVirtualTerminalSequenceProcessing()?;
         let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
@@ -91,7 +83,7 @@ impl Process {
     }
 
     /// Resizes virtuall terminal.
-    pub fn resize(&self, x: i16, y: i16) -> windows::Result<()> {
+    pub fn resize(&self, x: i16, y: i16) -> Result<()> {
         unsafe { ResizePseudoConsole(self._console, COORD { X: x, Y: y }) }
     }
 
@@ -101,20 +93,17 @@ impl Process {
     }
 
     /// Termianates process with exit_code.
-    pub fn exit(&self, code: u32) -> windows::Result<()> {
+    pub fn exit(&self, code: u32) -> Result<()> {
         unsafe { TerminateProcess(self._proc.hProcess, code).ok() }
     }
 
     /// Waits before process exists.
-    pub fn wait(&self, timeout_millis: Option<u32>) -> windows::Result<u32> {
+    pub fn wait(&self, timeout_millis: Option<u32>) -> Result<u32> {
         unsafe {
             match timeout_millis {
                 Some(timeout) => {
                     if WaitForSingleObject(self._proc.hProcess, timeout) == WAIT_TIMEOUT {
-                        return Err(windows::Error::new(
-                            HRESULT::from_thread(),
-                            "Timeout is reached",
-                        ));
+                        return Err(Error::new(HRESULT::default(), "Timeout is reached".into()));
                     }
                 }
                 None => {
@@ -139,7 +128,7 @@ impl Process {
     }
 
     /// Sets echo mode for a session.
-    pub fn set_echo(&self, on: bool) -> windows::Result<()> {
+    pub fn set_echo(&self, on: bool) -> Result<()> {
         // todo: determine if this function is usefull and it works?
         let stdout_h = stdout_handle()?;
         unsafe {
@@ -148,7 +137,7 @@ impl Process {
 
             match on {
                 true => mode |= ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT,
-                false => mode &= CONSOLE_MODE(!ENABLE_ECHO_INPUT.0),
+                false => mode &= !ENABLE_ECHO_INPUT,
             };
 
             SetConsoleMode(stdout_h, mode).ok()?;
@@ -191,7 +180,7 @@ impl Drop for Process {
             CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
-            let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _);
+            let _ = Box::from_raw(self._proc_info.lpAttributeList as _);
 
             CloseHandle(self.pty_input);
             CloseHandle(self.pty_output);
@@ -293,12 +282,12 @@ impl ProcAttr {
     }
 
     /// Spawns a process with set attributes.
-    pub fn spawn(self) -> windows::Result<Process> {
+    pub fn spawn(self) -> Result<Process> {
         Process::spawn(self)
     }
 }
 
-fn enableVirtualTerminalSequenceProcessing() -> windows::Result<()> {
+fn enableVirtualTerminalSequenceProcessing() -> Result<()> {
     let stdout_h = stdout_handle()?;
     unsafe {
         let mut mode = CONSOLE_MODE::default();
@@ -312,7 +301,7 @@ fn enableVirtualTerminalSequenceProcessing() -> windows::Result<()> {
     Ok(())
 }
 
-fn createPseudoConsole() -> windows::Result<(HPCON, HANDLE, HANDLE)> {
+fn createPseudoConsole() -> Result<(HPCON, HANDLE, HANDLE)> {
     let (pty_in, con_writer) = pipe()?;
     let (con_reader, pty_out) = pipe()?;
 
@@ -333,7 +322,7 @@ fn createPseudoConsole() -> windows::Result<(HPCON, HANDLE, HANDLE)> {
     Ok((console, con_reader, con_writer))
 }
 
-fn inhirentConsoleSize() -> windows::Result<COORD> {
+fn inhirentConsoleSize() -> Result<COORD> {
     let stdout_h = stdout_handle()?;
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
     unsafe {
@@ -351,16 +340,14 @@ fn inhirentConsoleSize() -> windows::Result<COORD> {
 // const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 22 | 0x0002_0000;
 const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;
 
-fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STARTUPINFOEXW> {
+fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> Result<STARTUPINFOEXW> {
     let mut siEx = STARTUPINFOEXW::default();
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
 
     let mut size: usize = 0;
-    let res = unsafe {
-        InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST::default(), 1, 0, &mut size)
-    };
+    let res = unsafe { InitializeProcThreadAttributeList(null_mut() as _, 1, 0, &mut size) };
     if res.as_bool() || size == 0 {
-        return Err(windows::Error::new(HRESULT::from_thread(), ""));
+        return Err(Error::new(HRESULT::default(), HSTRING::default()));
     }
 
     // SAFETY
@@ -369,7 +356,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     let lpAttributeList = vec![0u8; size].into_boxed_slice();
     let lpAttributeList = Box::leak(lpAttributeList);
 
-    siEx.lpAttributeList = LPPROC_THREAD_ATTRIBUTE_LIST(lpAttributeList.as_mut_ptr().cast());
+    siEx.lpAttributeList = lpAttributeList.as_mut_ptr().cast() as LPPROC_THREAD_ATTRIBUTE_LIST;
 
     unsafe {
         InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &mut size).ok()?;
@@ -377,7 +364,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
             siEx.lpAttributeList,
             0,
             PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-            hPC.0 as _,
+            *hPC as _,
             size_of::<HPCON>(),
             null_mut(),
             null_mut(),
@@ -388,10 +375,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> windows::Result<STA
     Ok(siEx)
 }
 
-fn execProc(
-    mut startup_info: STARTUPINFOEXW,
-    attr: ProcAttr,
-) -> windows::Result<PROCESS_INFORMATION> {
+fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> Result<PROCESS_INFORMATION> {
     if attr.commandline.is_none() && attr.application.is_none() {
         panic!("")
     }
@@ -432,7 +416,7 @@ fn execProc(
     Ok(proc_info)
 }
 
-fn pipe() -> windows::Result<(HANDLE, HANDLE)> {
+fn pipe() -> Result<(HANDLE, HANDLE)> {
     let mut p_in = HANDLE::default();
     let mut p_out = HANDLE::default();
     unsafe { CreatePipe(&mut p_in, &mut p_out, std::ptr::null_mut(), 0).ok()? };
@@ -440,7 +424,7 @@ fn pipe() -> windows::Result<(HANDLE, HANDLE)> {
     Ok((p_in, p_out))
 }
 
-fn stdout_handle() -> windows::Result<HANDLE> {
+fn stdout_handle() -> Result<HANDLE> {
     // we can't use `GetStdHandle(STD_OUTPUT_HANDLE)`
     // because it doesn't work when the IO is redirected
     //
@@ -454,12 +438,12 @@ fn stdout_handle() -> windows::Result<HANDLE> {
             std::ptr::null_mut(),
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
-            HANDLE::NULL,
+            HANDLE::default(),
         )
     };
 
-    if hConsole.is_null() || hConsole.is_invalid() {
-        Err(HRESULT::from_thread().into())
+    if hConsole.is_invalid() {
+        Err(Error::from_win32())
     } else {
         Ok(hConsole)
     }
@@ -484,8 +468,7 @@ fn environment_block_unicode(env: HashMap<String, String>) -> Vec<u16> {
 }
 
 // if given string is empty there will be produced a "\0" string in UTF-16
-fn pwstr_param(s: Option<String>) -> windows::Param<'static, PWSTR> {
-    use windows::IntoParam;
+fn pwstr_param(s: Option<String>) -> Param<'static, PWSTR> {
     match s {
         Some(s) => {
             // https://github.com/microsoft/windows-rs/blob/ba61866b51bafac94844a242f971739583ffa70e/crates/gen/src/pwstr.rs
@@ -494,7 +477,7 @@ fn pwstr_param(s: Option<String>) -> windows::Param<'static, PWSTR> {
         None => {
             // the memory will be zeroed
             // https://github.com/microsoft/windows-rs/blob/e1ab47c00b10b220d1372e4cdbe9a689d6365001/src/runtime/param.rs
-            windows::Param::None
+            Param::None
         }
     }
 }
