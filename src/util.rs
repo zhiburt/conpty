@@ -1,9 +1,9 @@
-use crate::bindings::{
-    Windows::Win32::Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
-    Windows::Win32::System::Threading::{GetCurrentProcess, WaitForSingleObject, WAIT_OBJECT_0},
-};
-
 use std::io;
+
+use windows::Win32::{
+    Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
+    System::Threading::{GetCurrentProcess, WaitForSingleObject, WAIT_OBJECT_0},
+};
 
 /// clone_handle can be used to clone a general HANDLE.
 pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
@@ -31,7 +31,7 @@ pub fn is_handle_ready(handle: HANDLE) -> std::io::Result<bool> {
     Ok(unsafe { WaitForSingleObject(handle, 0) == WAIT_OBJECT_0 })
 }
 
-pub(crate) fn win_error_to_io(err: windows::Error) -> io::Error {
+pub(crate) fn win_error_to_io(err: windows::core::Error) -> io::Error {
     let code = err.code();
     io::Error::from_raw_os_error(code.0 as i32)
 }

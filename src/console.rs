@@ -1,13 +1,13 @@
-use crate::bindings::{
-    Windows::Win32::Foundation::HANDLE,
-    Windows::Win32::System::Console::{
-        GetConsoleMode, SetConsoleMode, CONSOLE_MODE, DISABLE_NEWLINE_AUTO_RETURN,
-        ENABLE_ECHO_INPUT, ENABLE_EXTENDED_FLAGS, ENABLE_INSERT_MODE, ENABLE_LINE_INPUT,
-        ENABLE_MOUSE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_QUICK_EDIT_MODE,
-        ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_WINDOW_INPUT,
-    },
-    Windows::Win32::System::Threading::{WaitForSingleObject, WAIT_OBJECT_0},
+use std::os::windows::prelude::AsRawHandle;
+
+use windows::core::Result;
+use windows::Win32::System::Console::{
+    GetConsoleMode, SetConsoleMode, DISABLE_NEWLINE_AUTO_RETURN, ENABLE_ECHO_INPUT,
+    ENABLE_EXTENDED_FLAGS, ENABLE_INSERT_MODE, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT,
+    ENABLE_PROCESSED_INPUT, ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT,
 };
+use windows::Win32::System::Threading::{WaitForSingleObject, WAIT_OBJECT_0};
+use windows::Win32::{Foundation::HANDLE, System::Console::CONSOLE_MODE};
 
 /// Console doesn't owns handles.
 /// So you need to manage there lifetime on there own.
@@ -21,8 +21,7 @@ pub struct Console {
 }
 
 impl Console {
-    pub fn current() -> windows::Result<Self> {
-        use std::os::windows::io::AsRawHandle;
+    pub fn current() -> Result<Self> {
         let stdin = HANDLE(std::io::stdin().as_raw_handle() as isize);
         let stdout = HANDLE(std::io::stdout().as_raw_handle() as isize);
         let stderr = HANDLE(std::io::stderr().as_raw_handle() as isize);
@@ -41,7 +40,7 @@ impl Console {
         })
     }
 
-    pub fn set_raw(&self) -> windows::Result<()> {
+    pub fn set_raw(&self) -> Result<()> {
         set_raw_stdin(self.stdin, self.stdin_mode)?;
 
         unsafe {
@@ -54,7 +53,7 @@ impl Console {
         Ok(())
     }
 
-    pub fn reset(&self) -> windows::Result<()> {
+    pub fn reset(&self) -> Result<()> {
         for (handle, mode) in self.streams() {
             unsafe { SetConsoleMode(handle, mode).ok()? };
         }
@@ -76,7 +75,7 @@ impl Console {
     }
 }
 
-fn get_console_mode(h: HANDLE) -> windows::Result<CONSOLE_MODE> {
+fn get_console_mode(h: HANDLE) -> Result<CONSOLE_MODE> {
     let mut mode = CONSOLE_MODE::default();
     unsafe {
         GetConsoleMode(h, &mut mode).ok()?;
@@ -84,16 +83,16 @@ fn get_console_mode(h: HANDLE) -> windows::Result<CONSOLE_MODE> {
     Ok(mode)
 }
 
-fn set_raw_stdin(stdin: HANDLE, mut mode: CONSOLE_MODE) -> windows::Result<()> {
-    mode &= CONSOLE_MODE(!ENABLE_ECHO_INPUT.0);
-    mode &= CONSOLE_MODE(!ENABLE_LINE_INPUT.0);
-    mode &= CONSOLE_MODE(!ENABLE_MOUSE_INPUT.0);
-    mode &= CONSOLE_MODE(!ENABLE_WINDOW_INPUT.0);
-    mode &= CONSOLE_MODE(!ENABLE_PROCESSED_INPUT.0);
+fn set_raw_stdin(stdin: HANDLE, mut mode: CONSOLE_MODE) -> Result<()> {
+    mode &= !ENABLE_ECHO_INPUT;
+    mode &= !ENABLE_LINE_INPUT;
+    mode &= !ENABLE_MOUSE_INPUT;
+    mode &= !ENABLE_LINE_INPUT;
+    mode &= !ENABLE_PROCESSED_INPUT;
 
-    mode |= CONSOLE_MODE(ENABLE_EXTENDED_FLAGS);
-    mode |= CONSOLE_MODE(ENABLE_INSERT_MODE.0);
-    mode |= CONSOLE_MODE(ENABLE_QUICK_EDIT_MODE.0);
+    mode |= ENABLE_EXTENDED_FLAGS;
+    mode |= ENABLE_INSERT_MODE;
+    mode |= ENABLE_QUICK_EDIT_MODE;
 
     let vtInputSupported = true;
     if vtInputSupported {
