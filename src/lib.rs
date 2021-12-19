@@ -29,10 +29,9 @@ pub mod util;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
-use std::ptr::null;
 use std::{mem::size_of, ptr::null_mut};
 use windows::core::{IntoParam, Param, Result, HRESULT, HSTRING};
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, PWSTR, WAIT_TIMEOUT};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, PWSTR, WAIT_TIMEOUT};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
     FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -393,9 +392,9 @@ fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> Result<PROCESS_
         panic!("")
     }
 
-    let mut commandline = pwstr_param(attr.commandline);
-    let mut application = pwstr_param(attr.application);
-    let mut current_dir = pwstr_param(attr.current_dir);
+    let commandline = pwstr_param(attr.commandline);
+    let application = pwstr_param(attr.application);
+    let current_dir = pwstr_param(attr.current_dir);
     let env = match attr.env {
         Some(env) => Box::<[u16]>::into_raw(environment_block_unicode(env).into_boxed_slice()) as _,
         None => null_mut(),
