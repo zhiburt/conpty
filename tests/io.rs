@@ -79,7 +79,19 @@ fn read_until() {
 
 #[test]
 fn read_blocks_after_process_exit() {
-    let proc = spawn(r"echo 'Hello World'").unwrap();
+    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut writer = proc.input().unwrap();
+    let mut reader = proc.output().unwrap();
+
+    thread::sleep(Duration::from_millis(300));
+
+    writeln!(writer, "Hello World").unwrap();
+
+    let mut buf = [0; 128];
+    reader.read(&mut buf).unwrap();
+    assert_eq!(strip(buf).unwrap(), b"Hello World");
+
+    proc.exit(1).unwrap();
 
     thread::sleep(Duration::from_millis(600));
 
@@ -94,12 +106,19 @@ fn read_blocks_after_process_exit() {
 
 #[test]
 fn read_blocks_after_process_exit_with_no_output() {
-    let proc = spawn(r"echo 'Hello World'").unwrap();
+    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut writer = proc.input().unwrap();
     let mut reader = proc.output().unwrap();
+
+    thread::sleep(Duration::from_millis(300));
+
+    writeln!(writer, "Hello World").unwrap();
 
     let mut buf = [0; 128];
     reader.read(&mut buf).unwrap();
-    assert_eq!(strip(buf).unwrap(), b"'Hello World'\n");
+    assert_eq!(strip(buf).unwrap(), b"Hello World");
+
+    proc.exit(1).unwrap();
 
     thread::sleep(Duration::from_millis(600));
 
