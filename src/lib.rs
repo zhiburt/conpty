@@ -23,14 +23,17 @@
 #![allow(non_snake_case)]
 
 pub mod console;
+pub mod error;
 pub mod io;
 pub mod util;
 
+use error::Error;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
+use std::time::Duration;
 use std::{mem::size_of, ptr::null_mut};
-use windows::core::{IntoParam, Param, Result, HRESULT, HSTRING};
+use windows::core::{self as win, IntoParam, Param, HRESULT};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, PWSTR, WAIT_TIMEOUT};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
@@ -50,10 +53,8 @@ use windows::Win32::System::Threading::{
 };
 use windows::Win32::System::WindowsProgramming::INFINITE;
 
-pub use windows::core::Error;
-
 /// Spawns a command using `cmd.exe`.
-pub fn spawn(cmd: impl Into<String>) -> Result<Process> {
+pub fn spawn(cmd: impl Into<String>) -> Result<Process, Error> {
     Process::spawn(ProcAttr::cmd(cmd.into()))
 }
 
@@ -68,7 +69,7 @@ pub struct Process {
 }
 
 impl Process {
-    fn spawn(attr: ProcAttr) -> Result<Self> {
+    fn spawn(attr: ProcAttr) -> Result<Self, Error> {
         enableVirtualTerminalSequenceProcessing()?;
         let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
@@ -84,8 +85,9 @@ impl Process {
     }
 
     /// Resizes virtuall terminal.
-    pub fn resize(&self, x: i16, y: i16) -> Result<()> {
-        unsafe { ResizePseudoConsole(self._console, COORD { X: x, Y: y }) }
+    pub fn resize(&self, x: i16, y: i16) -> Result<(), Error> {
+        unsafe { ResizePseudoConsole(self._console, COORD { X: x, Y: y }) }?;
+        Ok(())
     }
 
     /// Returns a process's pid.
@@ -94,17 +96,18 @@ impl Process {
     }
 
     /// Termianates process with exit_code.
-    pub fn exit(&self, code: u32) -> Result<()> {
-        unsafe { TerminateProcess(self._proc.hProcess, code).ok() }
+    pub fn exit(&self, code: u32) -> Result<(), Error> {
+        unsafe { TerminateProcess(self._proc.hProcess, code).ok() }?;
+        Ok(())
     }
 
     /// Waits before process exists.
-    pub fn wait(&self, timeout_millis: Option<u32>) -> Result<u32> {
+    pub fn wait(&self, timeout_millis: Option<u32>) -> Result<u32, Error> {
         unsafe {
             match timeout_millis {
                 Some(timeout) => {
                     if WaitForSingleObject(self._proc.hProcess, timeout) == WAIT_TIMEOUT {
-                        return Err(Error::new(HRESULT::default(), "Timeout is reached".into()));
+                        return Err(Error::Timeout(Duration::from_millis(timeout as u64)));
                     }
                 }
                 None => {
@@ -129,7 +132,7 @@ impl Process {
     }
 
     /// Sets echo mode for a session.
-    pub fn set_echo(&self, on: bool) -> Result<()> {
+    pub fn set_echo(&self, on: bool) -> Result<(), Error> {
         // todo: determine if this function is usefull and it works?
         let stdout_h = stdout_handle()?;
         unsafe {
@@ -142,20 +145,21 @@ impl Process {
             };
 
             SetConsoleMode(stdout_h, mode).ok()?;
-            CloseHandle(stdout_h);
+            CloseHandle(stdout_h).ok()?;
         }
 
         Ok(())
     }
 
     /// Returns a pipe writer to conPTY.
-    pub fn input(&self) -> std::io::Result<io::PipeWriter> {
+    pub fn input(&self) -> Result<io::PipeWriter, Error> {
         // see [Self::output]
-        util::clone_handle(self.pty_input).map(io::PipeWriter::new)
+        let handle = util::clone_handle(self.pty_input)?;
+        Ok(io::PipeWriter::new(handle))
     }
 
     /// Returns a pipe reader from conPTY.
-    pub fn output(&self) -> std::io::Result<io::PipeReader> {
+    pub fn output(&self) -> Result<io::PipeReader, Error> {
         // It's crusial to clone first and not affect original HANDLE
         // as closing it closes all other's handles even though it's kindof unxpected.
         //
@@ -168,7 +172,8 @@ impl Process {
         // "
         //
         // https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/1754715c-45b7-4d8c-ba56-a501ccaec12c/closehandle-amp-duplicatehandle?forum=windowsgeneraldevelopmentissues
-        util::clone_handle(self.pty_output).map(io::PipeReader::new)
+        let handle = util::clone_handle(self.pty_output)?;
+        Ok(io::PipeReader::new(handle))
     }
 }
 
@@ -294,12 +299,12 @@ impl ProcAttr {
     }
 
     /// Spawns a process with set attributes.
-    pub fn spawn(self) -> Result<Process> {
+    pub fn spawn(self) -> Result<Process, Error> {
         Process::spawn(self)
     }
 }
 
-fn enableVirtualTerminalSequenceProcessing() -> Result<()> {
+fn enableVirtualTerminalSequenceProcessing() -> win::Result<()> {
     let stdout_h = stdout_handle()?;
     unsafe {
         let mut mode = CONSOLE_MODE::default();
@@ -313,7 +318,7 @@ fn enableVirtualTerminalSequenceProcessing() -> Result<()> {
     Ok(())
 }
 
-fn createPseudoConsole() -> Result<(HPCON, HANDLE, HANDLE)> {
+fn createPseudoConsole() -> win::Result<(HPCON, HANDLE, HANDLE)> {
     let (pty_in, con_writer) = pipe()?;
     let (con_reader, pty_out) = pipe()?;
 
@@ -334,7 +339,7 @@ fn createPseudoConsole() -> Result<(HPCON, HANDLE, HANDLE)> {
     Ok((console, con_reader, con_writer))
 }
 
-fn inhirentConsoleSize() -> Result<COORD> {
+fn inhirentConsoleSize() -> win::Result<COORD> {
     let stdout_h = stdout_handle()?;
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
     unsafe {
@@ -352,14 +357,17 @@ fn inhirentConsoleSize() -> Result<COORD> {
 // const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 22 | 0x0002_0000;
 const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;
 
-fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> Result<STARTUPINFOEXW> {
+fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUPINFOEXW> {
     let mut siEx = STARTUPINFOEXW::default();
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
 
     let mut size: usize = 0;
     let res = unsafe { InitializeProcThreadAttributeList(null_mut() as _, 1, 0, &mut size) };
     if res.as_bool() || size == 0 {
-        return Err(Error::new(HRESULT::default(), HSTRING::default()));
+        return Err(win::Error::new(
+            HRESULT::default(),
+            "failed initialize proc attribute list".into(),
+        ));
     }
 
     // SAFETY
@@ -387,7 +395,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> Result<STARTUPINFOE
     Ok(siEx)
 }
 
-fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> Result<PROCESS_INFORMATION> {
+fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> win::Result<PROCESS_INFORMATION> {
     if attr.commandline.is_none() && attr.application.is_none() {
         panic!("")
     }
@@ -428,7 +436,7 @@ fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> Result<PROCESS_
     Ok(proc_info)
 }
 
-fn pipe() -> Result<(HANDLE, HANDLE)> {
+fn pipe() -> win::Result<(HANDLE, HANDLE)> {
     let mut p_in = HANDLE::default();
     let mut p_out = HANDLE::default();
     unsafe { CreatePipe(&mut p_in, &mut p_out, std::ptr::null_mut(), 0).ok()? };
@@ -436,7 +444,7 @@ fn pipe() -> Result<(HANDLE, HANDLE)> {
     Ok((p_in, p_out))
 }
 
-fn stdout_handle() -> Result<HANDLE> {
+fn stdout_handle() -> win::Result<HANDLE> {
     // we can't use `GetStdHandle(STD_OUTPUT_HANDLE)`
     // because it doesn't work when the IO is redirected
     //
@@ -452,13 +460,10 @@ fn stdout_handle() -> Result<HANDLE> {
             FILE_ATTRIBUTE_NORMAL,
             HANDLE::default(),
         )
+        .ok()?
     };
 
-    if hConsole.is_invalid() {
-        Err(Error::from_win32())
-    } else {
-        Ok(hConsole)
-    }
+    Ok(hConsole)
 }
 
 fn environment_block_unicode(env: HashMap<String, String>) -> Vec<u16> {

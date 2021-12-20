@@ -1,12 +1,13 @@
 use std::io;
 
+use windows::core as win;
 use windows::Win32::{
     Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
     System::Threading::{GetCurrentProcess, WaitForSingleObject, WAIT_OBJECT_0},
 };
 
 /// clone_handle can be used to clone a general HANDLE.
-pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
+pub fn clone_handle(handle: HANDLE) -> win::Result<HANDLE> {
     let mut cloned_handle = HANDLE::default();
     unsafe {
         DuplicateHandle(
@@ -18,8 +19,7 @@ pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
             false,
             DUPLICATE_SAME_ACCESS,
         )
-        .ok()
-        .map_err(win_error_to_io)?;
+        .ok()?;
     }
 
     Ok(cloned_handle)
@@ -27,7 +27,7 @@ pub fn clone_handle(handle: HANDLE) -> std::io::Result<HANDLE> {
 
 /// is_handle_ready can be used with FILE HANDLEs to determine if there's
 /// something to read.
-pub fn is_handle_ready(handle: HANDLE) -> std::io::Result<bool> {
+pub(crate) fn is_handle_ready(handle: HANDLE) -> win::Result<bool> {
     Ok(unsafe { WaitForSingleObject(handle, 0) == WAIT_OBJECT_0 })
 }
 
