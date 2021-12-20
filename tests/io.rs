@@ -9,7 +9,7 @@ use strip_ansi_escapes::strip;
 
 #[test]
 fn write_and_read() {
-    let proc = spawn(r"python.exe .\tests\util\cat.py").unwrap();
+    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = LineWriter::new(proc.input().unwrap());
     let mut reader = BufReader::new(proc.output().unwrap());
 
@@ -31,7 +31,7 @@ fn write_and_read() {
 
 #[test]
 fn write_ctrl_c() {
-    let proc = spawn(r"python.exe .\tests\util\cat.py").unwrap();
+    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
 
     thread::sleep(Duration::from_millis(600));
@@ -47,7 +47,7 @@ fn write_ctrl_c() {
 
 #[test]
 fn write_ctrl_z() {
-    let proc = spawn(r"python.exe .\tests\util\cat.py").unwrap();
+    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
 
     // send ^Z
@@ -62,7 +62,7 @@ fn write_ctrl_z() {
 
 #[test]
 fn read_until() {
-    let proc = spawn(r"python.exe .\tests\util\cat.py").unwrap();
+    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
     let mut reader = BufReader::new(proc.output().unwrap());
 
