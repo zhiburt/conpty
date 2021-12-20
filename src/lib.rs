@@ -501,88 +501,9 @@ fn pwstr_param(s: Option<String>) -> Param<'static, PWSTR> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::io::prelude::*;
     use std::iter::FromIterator;
 
-    #[test]
-    pub fn close_one_pty_input_doesnt_close_others() {
-        let proc = spawn("cmd").unwrap();
-        let writer1 = proc.input().unwrap();
-        let mut writer2 = proc.input().unwrap();
-
-        assert!(writer2.write(b"").is_ok());
-
-        drop(writer1);
-
-        assert!(writer2.write(b"").is_ok());
-    }
-
-    #[test]
-    pub fn non_blocking_read() {
-        let proc = spawn("cmd").unwrap();
-        let mut reader = proc.output().unwrap();
-        reader.set_non_blocking_mode().unwrap();
-
-        let mut buf = [0; 1028];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(_) => break,
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(err) => Err(err).unwrap(),
-            }
-        }
-    }
-
-    #[test]
-    pub fn non_blocking_mode_affects_all_readers() {
-        let proc = spawn("cmd").unwrap();
-        let mut reader1 = proc.output().unwrap();
-        let mut reader2 = proc.output().unwrap();
-        reader2.set_non_blocking_mode().unwrap();
-
-        assert_eq!(
-            reader1.read(&mut [0; 128]).unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-    }
-
-    #[test]
-    pub fn dropping_one_reader_doesnt_affect_others() {
-        let proc = spawn("cmd").unwrap();
-        let mut reader1 = proc.output().unwrap();
-        let reader2 = proc.output().unwrap();
-
-        drop(reader2);
-
-        reader1.set_non_blocking_mode().unwrap();
-        assert_eq!(
-            reader1.read(&mut [0; 128]).unwrap_err().kind(),
-            std::io::ErrorKind::WouldBlock
-        );
-    }
-
-    // not sure if's desired behaiviour
-    // todo: timeout for wait/exit
-    #[test]
-    pub fn env_parameter() {
-        let batch = r#"if "%TEST_ENV%"=="123456" (exit 0) else (exit 1)"#;
-        let proc = ProcAttr::cmd(batch.to_string())
-            .env("TEST_ENV".to_string(), "123456".to_string())
-            .spawn()
-            .unwrap();
-        assert_eq!(proc.wait(None).unwrap(), 0);
-
-        let proc = ProcAttr::cmd(batch.to_string())
-            .env("TEST_ENV".to_string(), "NOT_CORRENT_VALUE".to_string())
-            .spawn()
-            .unwrap();
-        assert_eq!(proc.wait(None).unwrap(), 1);
-
-        // not set
-        let proc = ProcAttr::cmd(batch.to_string()).spawn().unwrap();
-        assert_eq!(proc.wait(None).unwrap(), 1);
-    }
+    use super::*;
 
     #[test]
     fn env_block_test() {
