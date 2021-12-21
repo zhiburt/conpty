@@ -3,7 +3,7 @@ use std::io;
 use windows::core as win;
 use windows::Win32::{
     Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE},
-    System::Threading::{GetCurrentProcess, WaitForSingleObject, WAIT_OBJECT_0},
+    System::Threading::GetCurrentProcess,
 };
 
 /// clone_handle can be used to clone a general HANDLE.
