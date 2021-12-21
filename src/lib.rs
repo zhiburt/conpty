@@ -182,14 +182,14 @@ impl Drop for Process {
         unsafe {
             ClosePseudoConsole(self._console);
 
-            CloseHandle(self._proc.hProcess);
-            CloseHandle(self._proc.hThread);
+            let _ = CloseHandle(self._proc.hProcess);
+            let _ = CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
             let _ = Box::from_raw(self._proc_info.lpAttributeList as _);
 
-            CloseHandle(self.pty_input);
-            CloseHandle(self.pty_output);
+            let _ = CloseHandle(self.pty_input);
+            let _ = CloseHandle(self.pty_output);
         }
     }
 }

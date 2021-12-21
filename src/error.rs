@@ -2,9 +2,12 @@ use std::{fmt, time::Duration};
 
 use windows::core as win;
 
+/// Error is a crate's erorr type.
 #[derive(Debug)]
 pub enum Error {
+    /// Internal windows error.
     Win(win::Error),
+    /// A error which is returned in case timeout was reached.
     Timeout(Duration),
 }
 

@@ -25,12 +25,6 @@ pub fn clone_handle(handle: HANDLE) -> win::Result<HANDLE> {
     Ok(cloned_handle)
 }
 
-/// is_handle_ready can be used with FILE HANDLEs to determine if there's
-/// something to read.
-pub(crate) fn is_handle_ready(handle: HANDLE) -> win::Result<bool> {
-    Ok(unsafe { WaitForSingleObject(handle, 0) == WAIT_OBJECT_0 })
-}
-
 pub(crate) fn win_error_to_io(err: windows::core::Error) -> io::Error {
     let code = err.code();
     io::Error::from_raw_os_error(code.0 as i32)

@@ -1,3 +1,8 @@
+//! This module contains [crate::Process]'s `Input` and `Output` pipes.
+//!
+//! Input - PipeWriter
+//! Output - PipeReader
+
 use windows::core::HRESULT;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Storage::FileSystem::{FlushFileBuffers, ReadFile, WriteFile};
