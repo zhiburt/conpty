@@ -1,7 +1,7 @@
 [package]
 name = "conpty"
-version = "0.2.1"
-edition = "2018"
+version = "0.3.0"
+edition = "2021"
 authors = ["Maxim Zhiburt <zhiburt@gmail.com>"]
 description = "A library which provides an interface for ConPTY"
 repository = "https://github.com/zhiburt/conpty"
