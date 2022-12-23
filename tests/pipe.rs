@@ -19,7 +19,7 @@ pub fn close_one_pty_input_doesnt_close_others() {
 pub fn non_blocking_read() {
     let proc = spawn("cmd").unwrap();
     let mut reader = proc.output().unwrap();
-    reader.set_non_blocking_mode().unwrap();
+    reader.blocking(false);
 
     let mut buf = [0; 1028];
     loop {
@@ -32,16 +32,13 @@ pub fn non_blocking_read() {
 }
 
 #[test]
-pub fn non_blocking_mode_affects_all_readers() {
+pub fn non_blocking_mode_does_not_affect_all_readers() {
     let proc = spawn("cmd").unwrap();
     let mut reader1 = proc.output().unwrap();
     let mut reader2 = proc.output().unwrap();
-    reader2.set_non_blocking_mode().unwrap();
+    reader2.blocking(false);
 
-    assert_eq!(
-        reader1.read(&mut [0; 128]).unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock
-    );
+    assert!(reader1.read(&mut [0; 128]).is_ok());
 }
 
 #[test]
@@ -52,7 +49,7 @@ pub fn dropping_one_reader_doesnt_affect_others() {
 
     drop(reader2);
 
-    reader1.set_non_blocking_mode().unwrap();
+    reader1.blocking(false);
     assert_eq!(
         reader1.read(&mut [0; 128]).unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
