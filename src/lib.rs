@@ -4,18 +4,14 @@
 //! # // todo: determine why this test timeouts if runnin as a doc test but not as an example.
 //! use std::io::prelude::*;
 //!
-//! fn main() {
-//!     let proc = conpty::spawn("echo Hello World").unwrap();
-//!     let mut reader = proc.output().unwrap();
+//! let proc = conpty::spawn("echo Hello World").unwrap();
+//! let mut reader = proc.output().unwrap();
 //!
-//!     println!("Process has pid={}", proc.pid());
+//! proc.wait(None).unwrap();
 //!
-//!     proc.wait(None).unwrap();
-//!
-//!     let mut buf = [0; 1028];
-//!     let n = reader.read(&mut buf).unwrap();
-//!     assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
-//! }
+//! let mut buf = [0; 1028];
+//! let n = reader.read(&mut buf).unwrap();
+//! assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
 //! ```
 //!
 //! [ConPTY]: https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/
@@ -28,12 +24,14 @@ pub mod io;
 pub mod util;
 
 use error::Error;
-use std::collections::HashMap;
-use std::ffi::c_void;
+use std::ffi::{c_void, OsStr, OsString};
 use std::fmt;
+use std::os::windows::prelude::OsStrExt;
+use std::process::Command;
+use std::ptr::null;
 use std::time::Duration;
 use std::{mem::size_of, ptr::null_mut};
-use windows::core::{self as win, IntoParam, Param, HRESULT};
+use windows::core::{self as win, HRESULT};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, PWSTR, WAIT_TIMEOUT};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
@@ -54,30 +52,52 @@ use windows::Win32::System::Threading::{
 use windows::Win32::System::WindowsProgramming::INFINITE;
 
 /// Spawns a command using `cmd.exe`.
-pub fn spawn(cmd: impl Into<String>) -> Result<Process, Error> {
-    Process::spawn(ProcAttr::cmd(cmd.into()))
+pub fn spawn(command: impl AsRef<OsStr>) -> Result<Process, Error> {
+    let mut cmd = OsString::new();
+    cmd.push("cmd /C ");
+    cmd.push(command);
+
+    Process::spawn(Command::new(&cmd))
 }
 
 /// The structure is resposible for interations with spawned process.
 /// It handles IO and other operations related to a spawned process.
 pub struct Process {
-    pty_input: HANDLE,
-    pty_output: HANDLE,
+    input: HANDLE,
+    output: HANDLE,
     _proc: PROCESS_INFORMATION,
     _proc_info: STARTUPINFOEXW,
     _console: HPCON,
 }
 
 impl Process {
-    fn spawn(attr: ProcAttr) -> Result<Self, Error> {
+    /// Spawn a given command.
+    ///
+    /// ```ignore
+    /// # // todo: determine why this test timeouts if runnin as a doc test but not as an example/test.
+    /// use std::io::prelude::*;
+    /// use std::process::Command;
+    /// use conpty::Process;
+    ///
+    /// let mut cmd = Command::new("cmd");
+    /// cmd.args(&["/C", "echo Hello World"]);
+    ///
+    /// let proc = Process::spawn(cmd).unwrap();
+    /// let mut reader = proc.output().unwrap();
+    ///
+    /// let mut buf = [0; 1028];
+    /// let n = reader.read(&mut buf).unwrap();
+    /// assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
+    /// ```
+    pub fn spawn(command: Command) -> Result<Self, Error> {
         enableVirtualTerminalSequenceProcessing()?;
-        let (mut console, pty_reader, pty_writer) = createPseudoConsole()?;
+        let (mut console, output, input) = createPseudoConsole()?;
         let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
-        let proc = execProc(startup_info, attr)?;
+        let proc = execProc(command, startup_info)?;
 
         Ok(Self {
-            pty_input: pty_writer,
-            pty_output: pty_reader,
+            input,
+            output,
             _console: console,
             _proc: proc,
             _proc_info: startup_info,
@@ -154,7 +174,7 @@ impl Process {
     /// Returns a pipe writer to conPTY.
     pub fn input(&self) -> Result<io::PipeWriter, Error> {
         // see [Self::output]
-        let handle = util::clone_handle(self.pty_input)?;
+        let handle = util::clone_handle(self.input)?;
         Ok(io::PipeWriter::new(handle))
     }
 
@@ -172,7 +192,7 @@ impl Process {
         // "
         //
         // https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/1754715c-45b7-4d8c-ba56-a501ccaec12c/closehandle-amp-duplicatehandle?forum=windowsgeneraldevelopmentissues
-        let handle = util::clone_handle(self.pty_output)?;
+        let handle = util::clone_handle(self.output)?;
         Ok(io::PipeReader::new(handle))
     }
 }
@@ -188,8 +208,8 @@ impl Drop for Process {
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
             let _ = Box::from_raw(self._proc_info.lpAttributeList as _);
 
-            let _ = CloseHandle(self.pty_input);
-            let _ = CloseHandle(self.pty_output);
+            let _ = CloseHandle(self.input);
+            let _ = CloseHandle(self.output);
         }
     }
 }
@@ -197,110 +217,11 @@ impl Drop for Process {
 impl fmt::Debug for Process {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PipeReader")
-            .field("pty_output", &(self.pty_output.0))
-            .field("pty_output(ptr)", &(self.pty_output.0 as *const c_void))
-            .field("pty_input", &(self.pty_input.0))
-            .field("pty_input(ptr)", &(self.pty_input.0 as *const c_void))
+            .field("pty_output", &(self.output.0))
+            .field("pty_output(ptr)", &(self.output.0 as *const c_void))
+            .field("pty_input", &(self.input.0))
+            .field("pty_input(ptr)", &(self.input.0 as *const c_void))
             .finish_non_exhaustive()
-    }
-}
-
-/// ProcAttr represents parameters for process to be spawned.
-///
-/// Interface is inspired by win32 `CreateProcess` function.
-///
-/// Generally to run a common process you can set commandline to a path to binary.
-/// But if you're trying to spawn just a command in shell if must provide your shell first, like cmd.exe.
-///
-/// # Example
-///
-/// ```ignore
-/// let attr = conpty::ProcAttr::default().commandline("pwsh").arg("echo", "world");
-/// ```
-#[derive(Default, Debug)]
-pub struct ProcAttr {
-    application: Option<String>,
-    commandline: Option<String>,
-    current_dir: Option<String>,
-    args: Vec<String>,
-    env: Option<HashMap<String, String>>,
-}
-
-impl ProcAttr {
-    /// Runs a batch file in a default `CMD` interpretator.
-    pub fn batch(file: impl AsRef<str>) -> Self {
-        // To run a batch file, you must start the command interpreter; set lpApplicationName to cmd.exe and
-        // set lpCommandLine to the following arguments: /c plus the name of the batch file.
-        //
-        // https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw
-        let inter = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd".to_string());
-        let args = format!("/C {:?}", file.as_ref());
-
-        Self::default().application(inter).commandline(args)
-    }
-
-    /// Runs a command from `cmd.exe`
-    pub fn cmd(commandline: impl AsRef<str>) -> Self {
-        let args = format!("cmd /C {}", commandline.as_ref());
-
-        Self::default().commandline(args)
-    }
-
-    /// Sets commandline argument.
-    pub fn commandline(mut self, cmd: impl Into<String>) -> Self {
-        self.commandline = Some(cmd.into());
-        self
-    }
-
-    /// Sets application argument.
-    /// Must be a path to a binary.
-    pub fn application(mut self, application: impl Into<String>) -> Self {
-        self.application = Some(application.into());
-        self
-    }
-
-    /// Sets current dir.
-    pub fn current_dir(mut self, dir: impl Into<String>) -> Self {
-        self.current_dir = Some(dir.into());
-        self
-    }
-
-    /// Sets a list of arguments as process arguments.
-    pub fn args(mut self, args: Vec<String>) -> Self {
-        self.args = args;
-        self
-    }
-
-    /// Adds an argument to a list of process arguments.
-    pub fn arg(mut self, arg: impl Into<String>) -> Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    /// Sets a list of env variables as process env variables.
-    ///
-    /// If envs isn't set they will be inhirited from parent process.
-    pub fn envs(mut self, env: HashMap<String, String>) -> Self {
-        self.env = Some(env);
-        self
-    }
-
-    /// Adds an env variable to process env variables list.
-    ///
-    /// If any envs isn't added the environment list will be inhirited from parent process.
-    pub fn env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        match &mut self.env {
-            Some(env) => {
-                env.insert(key.into(), value.into());
-                self
-            }
-            None => self.envs(HashMap::new()).env(key.into(), value.into()),
-        }
-    }
-
-    /// Spawns a process with set attributes.
-    pub fn spawn(self) -> Result<Process, Error> {
-        Process::spawn(self)
     }
 }
 
@@ -395,45 +316,63 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
     Ok(siEx)
 }
 
-fn execProc(mut startup_info: STARTUPINFOEXW, attr: ProcAttr) -> win::Result<PROCESS_INFORMATION> {
-    if attr.commandline.is_none() && attr.application.is_none() {
-        panic!("")
-    }
+fn execProc(command: Command, startup_info: STARTUPINFOEXW) -> win::Result<PROCESS_INFORMATION> {
+    let commandline = build_commandline(&command);
+    let mut commandline = convert_osstr_to_utf16(&commandline);
+    let commandline = PWSTR(commandline.as_mut_ptr());
 
-    let commandline = pwstr_param(attr.commandline);
-    let application = pwstr_param(attr.application);
-    let current_dir = pwstr_param(attr.current_dir);
-    let env = match attr.env {
-        Some(env) => Box::<[u16]>::into_raw(environment_block_unicode(env).into_boxed_slice()) as _,
-        None => null_mut(),
+    let current_dir = command.get_current_dir();
+    let mut current_dir = current_dir.map(|p| convert_osstr_to_utf16(p.as_os_str()));
+    let current_dir = current_dir
+        .as_mut()
+        .map_or(null_mut(), |dir| dir.as_mut_ptr());
+    let current_dir = PWSTR(current_dir);
+
+    let envs_list = || {
+        command
+            .get_envs()
+            .filter_map(|(key, value)| value.map(|value| (key, value)))
+    };
+    let envs = environment_block_unicode(envs_list());
+    let envs = if envs_list().next().is_some() {
+        envs.as_ptr() as _
+    } else {
+        null()
     };
 
+    let appname = PWSTR(null_mut());
+    let dwflags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT; // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
+
     let mut proc_info = PROCESS_INFORMATION::default();
-    let result = unsafe {
+    unsafe {
         CreateProcessW(
-            application.abi(),
-            commandline.abi(),
+            appname,
+            commandline,
             null_mut(),
             null_mut(),
             false,
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
-            env,
-            current_dir.abi(),
-            &mut startup_info.StartupInfo,
+            dwflags,
+            envs,
+            current_dir,
+            &startup_info.StartupInfo,
             &mut proc_info,
         )
-        .ok()
+        .ok()?
     };
 
-    if !env.is_null() {
-        unsafe {
-            ::std::boxed::Box::from_raw(env);
-        }
+    Ok(proc_info)
+}
+
+fn build_commandline(command: &Command) -> OsString {
+    let mut buf = OsString::new();
+    buf.push(command.get_program());
+
+    for arg in command.get_args() {
+        buf.push(" ");
+        buf.push(arg);
     }
 
-    result?;
-
-    Ok(proc_info)
+    buf
 }
 
 fn pipe() -> win::Result<(HANDLE, HANDLE)> {
@@ -466,17 +405,21 @@ fn stdout_handle() -> win::Result<HANDLE> {
     Ok(hConsole)
 }
 
-fn environment_block_unicode(env: HashMap<String, String>) -> Vec<u16> {
-    if env.is_empty() {
+fn environment_block_unicode<'a>(
+    env: impl IntoIterator<Item = (&'a OsStr, &'a OsStr)>,
+) -> Vec<u16> {
+    let mut b = Vec::new();
+    for (key, value) in env {
+        b.extend(key.encode_wide());
+        b.extend("=".encode_utf16());
+        b.extend(value.encode_wide());
+        b.push(0);
+    }
+
+    if b.is_empty() {
         // two '\0' in UTF-16/UCS-2
         // four '\0' in UTF-8
         return vec![0, 0];
-    }
-
-    let mut b = Vec::new();
-    for (key, value) in env {
-        let part = format!("{}={}\0", key, value);
-        b.extend(part.encode_utf16());
     }
 
     b.push(0);
@@ -485,40 +428,36 @@ fn environment_block_unicode(env: HashMap<String, String>) -> Vec<u16> {
 }
 
 // if given string is empty there will be produced a "\0" string in UTF-16
-fn pwstr_param(s: Option<String>) -> Param<'static, PWSTR> {
-    match s {
-        Some(s) => {
-            // https://github.com/microsoft/windows-rs/blob/ba61866b51bafac94844a242f971739583ffa70e/crates/gen/src/pwstr.rs
-            s.into_param()
-        }
-        None => {
-            // the memory will be zeroed
-            // https://github.com/microsoft/windows-rs/blob/e1ab47c00b10b220d1372e4cdbe9a689d6365001/src/runtime/param.rs
-            Param::None
-        }
-    }
+fn convert_osstr_to_utf16(s: &OsStr) -> Vec<u16> {
+    let mut bytes: Vec<_> = s.encode_wide().collect();
+    bytes.push(0);
+    bytes
 }
 
 #[cfg(test)]
 mod tests {
-    use std::iter::FromIterator;
-
     use super::*;
 
     #[test]
     fn env_block_test() {
-        assert_eq!(
-            environment_block_unicode(HashMap::from_iter([("asd".to_string(), "qwe".to_string())])),
-            str_to_utf16("asd=qwe\0\0")
-        );
-        assert!(matches!(environment_block_unicode(HashMap::from_iter([
-                ("asd".to_string(), "qwe".to_string()),
-                ("zxc".to_string(), "123".to_string())
-            ])), s if s == str_to_utf16("asd=qwe\0zxc=123\0\0") || s == str_to_utf16("zxc=123\0asd=qwe\0\0")));
-        assert_eq!(
-            environment_block_unicode(HashMap::from_iter([])),
-            str_to_utf16("\0\0")
-        );
+        let tests = [
+            (vec![], "\0\0"),
+            (vec![(OsStr::new("asd"), OsStr::new("qwe"))], "asd=qwe\0\0"),
+            (
+                vec![
+                    (OsStr::new("asd"), OsStr::new("qwe")),
+                    (OsStr::new("zxc"), OsStr::new("123")),
+                ],
+                "asd=qwe\0zxc=123\0\0",
+            ),
+        ];
+
+        for (m, expected) in tests {
+            let env = environment_block_unicode(m);
+            let expected = str_to_utf16(expected);
+
+            assert_eq!(env, expected,);
+        }
     }
 
     fn str_to_utf16(s: impl AsRef<str>) -> Vec<u16> {

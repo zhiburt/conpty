@@ -70,6 +70,7 @@ fn read_until() {
 
     let mut buf = Vec::new();
     reader.read_until(b' ', &mut buf).unwrap();
+
     assert_eq!(strip(&buf).unwrap(), b"Hello ");
 
     let mut buf = vec![0; 128];
