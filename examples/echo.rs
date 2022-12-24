@@ -6,11 +6,7 @@ fn main() {
 
     println!("Process has pid={}", proc.pid());
 
-    proc.wait(None).unwrap();
-
     let mut buf = [0; 1028];
     let n = reader.read(&mut buf).unwrap();
     assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
-
-    println!("{:?}", String::from_utf8_lossy(&buf[..n]));
 }

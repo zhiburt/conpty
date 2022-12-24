@@ -1,40 +1,47 @@
 #![allow(non_snake_case)]
 
-use std::ffi::{c_void, OsStr, OsString};
-use std::fmt;
-use std::os::windows::prelude::OsStrExt;
-use std::process::Command;
-use std::ptr::null;
-use std::time::Duration;
-use std::{mem::size_of, ptr::null_mut};
+use std::{
+    ffi::{c_void, OsStr, OsString},
+    fmt,
+    mem::size_of,
+    os::windows::prelude::OsStrExt,
+    process::Command,
+    ptr::{null, null_mut},
+    time::Duration,
+};
 
-use windows::core::{self as win, HRESULT};
-use windows::Win32::{
-    Foundation::{CloseHandle, HANDLE, PWSTR, WAIT_TIMEOUT},
-    Storage::FileSystem::{
-        CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
-    },
-    System::{
-        Console::{
-            ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, GetConsoleScreenBufferInfo,
-            ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE, CONSOLE_SCREEN_BUFFER_INFO, COORD,
-            ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
+use windows::{
+    core::{self as win, HRESULT},
+    Win32::{
+        Foundation::{CloseHandle, HANDLE, PWSTR, WAIT_TIMEOUT},
+        Storage::FileSystem::{
+            CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
         },
-        Pipes::CreatePipe,
-        Threading::{
-            CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
-            InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
-            WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-            LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
+        System::{
+            Console::{
+                ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode,
+                GetConsoleScreenBufferInfo, ResizePseudoConsole, SetConsoleMode, CONSOLE_MODE,
+                CONSOLE_SCREEN_BUFFER_INFO, COORD, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
+                ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
+            },
+            Pipes::CreatePipe,
+            Threading::{
+                CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
+                InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
+                WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+                LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
+            },
+            WindowsProgramming::INFINITE,
         },
-        WindowsProgramming::INFINITE,
     },
 };
 
-use crate::error::Error;
-use crate::io::{PipeReader, PipeWriter};
-use crate::util::clone_handle;
+use crate::{
+    error::Error,
+    io::{PipeReader, PipeWriter},
+    util::clone_handle,
+};
 
 /// The structure is resposible for interations with spawned process.
 /// It handles IO and other operations related to a spawned process.
