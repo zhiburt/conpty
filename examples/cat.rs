@@ -6,7 +6,7 @@ use std::{
 use conpty::io::PipeReader;
 
 fn main() {
-    let p = conpty::spawn(r#"cmd"#).unwrap();
+    let mut p = conpty::spawn(r#"cmd"#).unwrap();
 
     println!("Process PID={:?}", p.pid());
 

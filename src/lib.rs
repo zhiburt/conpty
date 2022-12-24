@@ -24,6 +24,7 @@ pub mod io;
 pub mod util;
 
 use error::Error;
+use io::{PipeWriter, PipeReader};
 use std::ffi::{c_void, OsStr, OsString};
 use std::fmt;
 use std::os::windows::prelude::OsStrExt;
@@ -90,56 +91,17 @@ impl Process {
     /// assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
     /// ```
     pub fn spawn(command: Command) -> Result<Self, Error> {
-        enableVirtualTerminalSequenceProcessing()?;
-        let (mut console, output, input) = createPseudoConsole()?;
-        let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
-        let proc = execProc(command, startup_info)?;
-
-        Ok(Self {
-            input,
-            output,
-            _console: console,
-            _proc: proc,
-            _proc_info: startup_info,
-        })
+        spawn_command(command)
     }
-
-    /// Resizes virtuall terminal.
-    pub fn resize(&self, x: i16, y: i16) -> Result<(), Error> {
-        unsafe { ResizePseudoConsole(self._console, COORD { X: x, Y: y }) }?;
-        Ok(())
-    }
-
+    
     /// Returns a process's pid.
     pub fn pid(&self) -> u32 {
-        unsafe { GetProcessId(self._proc.hProcess) }
-    }
-
-    /// Termianates process with exit_code.
-    pub fn exit(&self, code: u32) -> Result<(), Error> {
-        unsafe { TerminateProcess(self._proc.hProcess, code).ok() }?;
-        Ok(())
+        get_process_pid(self._proc.hProcess)
     }
 
     /// Waits before process exists.
     pub fn wait(&self, timeout_millis: Option<u32>) -> Result<u32, Error> {
-        unsafe {
-            match timeout_millis {
-                Some(timeout) => {
-                    if WaitForSingleObject(self._proc.hProcess, timeout) == WAIT_TIMEOUT {
-                        return Err(Error::Timeout(Duration::from_millis(timeout as u64)));
-                    }
-                }
-                None => {
-                    WaitForSingleObject(self._proc.hProcess, INFINITE);
-                }
-            }
-
-            let mut code = 0;
-            GetExitCodeProcess(self._proc.hProcess, &mut code).ok()?;
-
-            Ok(code)
-        }
+        wait_process(self._proc.hProcess, timeout_millis)
     }
 
     /// Is alive determines if a process is still running.
@@ -147,39 +109,33 @@ impl Process {
     /// IMPORTANT: Beware to use it in a way to stop reading when is_alive is false.
     //  Because at the point of calling method it may be alive but at the point of `read` call it may already not.
     pub fn is_alive(&self) -> bool {
-        // https://stackoverflow.com/questions/1591342/c-how-to-determine-if-a-windows-process-is-running/5303889
-        unsafe { WaitForSingleObject(self._proc.hProcess, 0) == WAIT_TIMEOUT }
+        is_process_alive(self._proc.hProcess)
+    }
+
+    /// Resizes virtual terminal.
+    pub fn resize(&mut self, x: i16, y: i16) -> Result<(), Error> {
+        resize_console(self._console, x, y)
+    }
+
+    /// Termianates process with exit_code.
+    pub fn exit(&mut self, code: u32) -> Result<(), Error> {
+        kill_process(self._proc.hProcess, code)
     }
 
     /// Sets echo mode for a session.
-    pub fn set_echo(&self, on: bool) -> Result<(), Error> {
-        // todo: determine if this function is usefull and it works?
-        let stdout_h = stdout_handle()?;
-        unsafe {
-            let mut mode = CONSOLE_MODE::default();
-            GetConsoleMode(stdout_h, &mut mode).ok()?;
-
-            match on {
-                true => mode |= ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT,
-                false => mode &= !ENABLE_ECHO_INPUT,
-            };
-
-            SetConsoleMode(stdout_h, mode).ok()?;
-            CloseHandle(stdout_h).ok()?;
-        }
-
-        Ok(())
+    pub fn set_echo(&mut self, on: bool) -> Result<(), Error> {
+        console_stdout_set_echo(on)
     }
 
     /// Returns a pipe writer to conPTY.
-    pub fn input(&self) -> Result<io::PipeWriter, Error> {
+    pub fn input(&mut self) -> Result<PipeWriter, Error> {
         // see [Self::output]
         let handle = util::clone_handle(self.input)?;
-        Ok(io::PipeWriter::new(handle))
+        Ok(PipeWriter::new(handle))
     }
 
     /// Returns a pipe reader from conPTY.
-    pub fn output(&self) -> Result<io::PipeReader, Error> {
+    pub fn output(&mut self) -> Result<PipeReader, Error> {
         // It's crusial to clone first and not affect original HANDLE
         // as closing it closes all other's handles even though it's kindof unxpected.
         //
@@ -193,7 +149,7 @@ impl Process {
         //
         // https://social.msdn.microsoft.com/Forums/windowsdesktop/en-US/1754715c-45b7-4d8c-ba56-a501ccaec12c/closehandle-amp-duplicatehandle?forum=windowsgeneraldevelopmentissues
         let handle = util::clone_handle(self.output)?;
-        Ok(io::PipeReader::new(handle))
+        Ok(PipeReader::new(handle))
     }
 }
 
@@ -432,6 +388,79 @@ fn convert_osstr_to_utf16(s: &OsStr) -> Vec<u16> {
     let mut bytes: Vec<_> = s.encode_wide().collect();
     bytes.push(0);
     bytes
+}
+
+fn console_stdout_set_echo(on: bool) -> Result<(), Error> {
+    // todo: determine if this function is usefull and it works?
+    let stdout_h = stdout_handle()?;
+    
+        let mut mode = CONSOLE_MODE::default();
+        unsafe { GetConsoleMode(stdout_h, &mut mode).ok()? };
+
+        match on {
+            true => mode |= ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT,
+            false => mode &= !ENABLE_ECHO_INPUT,
+        };
+
+        unsafe {
+            SetConsoleMode(stdout_h, mode).ok()?;
+            CloseHandle(stdout_h).ok()?;
+        }
+        
+
+    Ok(())
+}
+
+fn spawn_command(command: Command) -> Result<Process, Error> {
+    enableVirtualTerminalSequenceProcessing()?;
+    let (mut console, output, input) = createPseudoConsole()?;
+    let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
+    let proc = execProc(command, startup_info)?;
+    Ok(Process {
+        input,
+        output,
+        _console: console,
+        _proc: proc,
+        _proc_info: startup_info,
+    })
+}
+
+fn resize_console(console: HPCON, x: i16, y: i16) -> Result<(), Error> {
+    unsafe { ResizePseudoConsole(console, COORD { X: x, Y: y }) }?;
+    Ok(())
+}
+
+fn get_process_pid(proc: HANDLE) -> u32 {
+    unsafe { GetProcessId(proc) }
+}
+
+fn kill_process(proc: HANDLE, code: u32) -> Result<(), Error> {
+    unsafe { TerminateProcess(proc, code).ok()? };
+    Ok(())
+}
+
+fn is_process_alive(proc: HANDLE) -> bool {
+    // https://stackoverflow.com/questions/1591342/c-how-to-determine-if-a-windows-process-is-running/5303889
+    unsafe { WaitForSingleObject(proc, 0) == WAIT_TIMEOUT }
+}
+
+fn wait_process(proc: HANDLE, timeout_millis: Option<u32>) -> Result<u32, Error> {
+    match timeout_millis {
+        Some(timeout) => {
+            let result = unsafe { WaitForSingleObject(proc, timeout) };
+            if result == WAIT_TIMEOUT {
+                return Err(Error::Timeout(Duration::from_millis(timeout as u64)));
+            }
+        }
+        None => {
+            unsafe { WaitForSingleObject(proc, INFINITE) }; 
+        }
+    }
+
+    let mut code = 0;
+    unsafe { GetExitCodeProcess(proc, &mut code).ok()?; }
+
+    Ok(code)
 }
 
 #[cfg(test)]

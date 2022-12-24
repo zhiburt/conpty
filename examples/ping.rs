@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 
 fn main() {
-    let proc = conpty::spawn("echo Hello World").unwrap();
+    let mut proc = conpty::spawn("echo Hello World").unwrap();
     let mut reader = proc.output().unwrap();
 
     println!("Process has pid={}", proc.pid());
