@@ -3,7 +3,7 @@ use std::{
     fmt,
     io::{self, Read},
     mem::MaybeUninit,
-    ptr::{self, null_mut},
+    ptr,
 };
 
 use windows::Win32::{
@@ -85,7 +85,7 @@ fn pipe_available_bytes(h: HANDLE) -> io::Result<u32> {
     let bytes_ptr: *mut u32 = unsafe { ptr::addr_of_mut!(*bytes.as_mut_ptr()) };
 
     unsafe {
-        PeekNamedPipe(h, null_mut(), 0, null_mut(), bytes_ptr, null_mut())
+        PeekNamedPipe(h, None, 0, None, Some(bytes_ptr), None)
             .ok()
             .map_err(win_error_to_io)?;
     }
@@ -114,7 +114,7 @@ fn read_from_pipe(h: HANDLE, buf: &mut [u8]) -> io::Result<usize> {
     let buf = buf.as_mut_ptr() as _;
 
     unsafe {
-        ReadFile(h, buf, size, &mut n, null_mut())
+        ReadFile(h, Some(buf), size, Some(&mut n), None)
             .ok()
             .map_err(win_error_to_io)?;
     }

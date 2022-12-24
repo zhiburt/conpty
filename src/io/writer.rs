@@ -2,7 +2,6 @@ use std::{
     ffi::c_void,
     fmt,
     io::{self, Write},
-    ptr::null_mut,
 };
 
 use windows::Win32::{
@@ -71,9 +70,10 @@ impl fmt::Debug for PipeWriter {
 fn write_to_pipe(h: HANDLE, buf: &[u8]) -> io::Result<usize> {
     let mut n = 0;
     let buf_size = buf.len() as u32;
+    let buf_ptr = buf.as_ptr() as _;
 
     unsafe {
-        WriteFile(h, buf.as_ptr() as _, buf_size, &mut n, null_mut())
+        WriteFile(h, Some(buf_ptr), buf_size, Some(&mut n), None)
             .ok()
             .map_err(win_error_to_io)?;
     }

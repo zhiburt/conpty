@@ -13,9 +13,8 @@ keywords = ["win32", "ConPTY", "terminal", "shell"]
 readme = "README.md"
 
 [dependencies.windows]
-version = "0.29.0"
+version = "0.43.0"
 features = [
-    "alloc",
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_Threading",

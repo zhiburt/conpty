@@ -11,9 +11,9 @@ use std::{
 };
 
 use windows::{
-    core::{self as win, HRESULT},
+    core::{self as win, HRESULT, PCWSTR, PWSTR},
     Win32::{
-        Foundation::{CloseHandle, HANDLE, PWSTR, WAIT_TIMEOUT},
+        Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT},
         Storage::FileSystem::{
             CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
             FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -144,7 +144,7 @@ impl Drop for Process {
             let _ = CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
-            let _ = Box::from_raw(self._proc_info.lpAttributeList as _);
+            let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _);
 
             let _ = CloseHandle(self.input);
             let _ = CloseHandle(self.output);
@@ -221,7 +221,9 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
 
     let mut size: usize = 0;
-    let res = unsafe { InitializeProcThreadAttributeList(null_mut() as _, 1, 0, &mut size) };
+    let res = unsafe {
+        InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut()), 1, 0, &mut size)
+    };
     if res.as_bool() || size == 0 {
         return Err(win::Error::new(
             HRESULT::default(),
@@ -235,7 +237,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
     let lpAttributeList = vec![0u8; size].into_boxed_slice();
     let lpAttributeList = Box::leak(lpAttributeList);
 
-    siEx.lpAttributeList = lpAttributeList.as_mut_ptr().cast() as LPPROC_THREAD_ATTRIBUTE_LIST;
+    siEx.lpAttributeList = LPPROC_THREAD_ATTRIBUTE_LIST(lpAttributeList.as_mut_ptr() as _);
 
     unsafe {
         InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &mut size).ok()?;
@@ -243,10 +245,10 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
             siEx.lpAttributeList,
             0,
             PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-            *hPC as _,
+            Some(hPC.0 as _),
             size_of::<HPCON>(),
-            null_mut(),
-            null_mut(),
+            None,
+            None,
         )
         .ok()?;
     }
@@ -260,11 +262,9 @@ fn execProc(command: Command, startup_info: STARTUPINFOEXW) -> win::Result<PROCE
     let commandline = PWSTR(commandline.as_mut_ptr());
 
     let current_dir = command.get_current_dir();
-    let mut current_dir = current_dir.map(|p| convert_osstr_to_utf16(p.as_os_str()));
-    let current_dir = current_dir
-        .as_mut()
-        .map_or(null_mut(), |dir| dir.as_mut_ptr());
-    let current_dir = PWSTR(current_dir);
+    let current_dir = current_dir.map(|p| convert_osstr_to_utf16(p.as_os_str()));
+    let current_dir = current_dir.as_ref().map_or(null(), |dir| dir.as_ptr());
+    let current_dir = PCWSTR(current_dir);
 
     let envs_list = || {
         command
@@ -273,12 +273,12 @@ fn execProc(command: Command, startup_info: STARTUPINFOEXW) -> win::Result<PROCE
     };
     let envs = environment_block_unicode(envs_list());
     let envs = if envs_list().next().is_some() {
-        envs.as_ptr() as _
+        Some(envs.as_ptr() as _)
     } else {
-        null()
+        None
     };
 
-    let appname = PWSTR(null_mut());
+    let appname = PCWSTR(null_mut());
     let dwflags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT; // CREATE_UNICODE_ENVIRONMENT | CREATE_NEW_CONSOLE
 
     let mut proc_info = PROCESS_INFORMATION::default();
@@ -286,8 +286,8 @@ fn execProc(command: Command, startup_info: STARTUPINFOEXW) -> win::Result<PROCE
         CreateProcessW(
             appname,
             commandline,
-            null_mut(),
-            null_mut(),
+            None,
+            None,
             false,
             dwflags,
             envs,
@@ -316,7 +316,7 @@ fn build_commandline(command: &Command) -> OsString {
 fn pipe() -> win::Result<(HANDLE, HANDLE)> {
     let mut p_in = HANDLE::default();
     let mut p_out = HANDLE::default();
-    unsafe { CreatePipe(&mut p_in, &mut p_out, std::ptr::null_mut(), 0).ok()? };
+    unsafe { CreatePipe(&mut p_in, &mut p_out, None, 0).ok()? };
 
     Ok((p_in, p_out))
 }
@@ -327,20 +327,20 @@ fn stdout_handle() -> win::Result<HANDLE> {
     //
     // https://stackoverflow.com/questions/33476316/win32-getconsolemode-error-code-6
 
-    let hConsole = unsafe {
+    let conout: Vec<u16> = convert_osstr_to_utf16(OsStr::new("CONOUT$"));
+    let conout = PCWSTR(conout.as_ptr());
+
+    unsafe {
         CreateFileW(
-            "CONOUT$",
+            Some(conout),
             FILE_GENERIC_READ | FILE_GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
-            std::ptr::null_mut(),
+            None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
             HANDLE::default(),
         )
-        .ok()?
-    };
-
-    Ok(hConsole)
+    }
 }
 
 fn environment_block_unicode<'a>(

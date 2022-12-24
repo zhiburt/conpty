@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use windows::core::Result as WinResult;
+use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::{
     Foundation::HANDLE,
     System::{
@@ -11,7 +12,7 @@ use windows::Win32::{
             ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_ERROR_HANDLE,
             STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
         },
-        Threading::{WaitForSingleObject, WAIT_OBJECT_0},
+        Threading::WaitForSingleObject,
     },
 };
 
@@ -33,9 +34,9 @@ impl Console {
         // We don't close these handle on drop because:
         //  It is not required to CloseHandle when done with the handle retrieved from GetStdHandle.
         //  The returned value is simply a copy of the value stored in the process table.
-        let stdin = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-        let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-        let stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+        let stdin = unsafe { GetStdHandle(STD_INPUT_HANDLE)? };
+        let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE)? };
+        let stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE)? };
 
         let stdin_mode = get_console_mode(stdin)?;
         let stdout_mode = get_console_mode(stdout)?;
