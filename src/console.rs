@@ -1,12 +1,20 @@
-use windows::core as win;
-use windows::Win32::System::Console::{
-    GetConsoleMode, GetStdHandle, SetConsoleMode, DISABLE_NEWLINE_AUTO_RETURN, ENABLE_ECHO_INPUT,
-    ENABLE_EXTENDED_FLAGS, ENABLE_INSERT_MODE, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT,
-    ENABLE_PROCESSED_INPUT, ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT,
-    STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+#![allow(non_snake_case)]
+
+use windows::core::Result as WinResult;
+use windows::Win32::Foundation::WAIT_OBJECT_0;
+use windows::Win32::{
+    Foundation::HANDLE,
+    System::{
+        Console::{
+            GetConsoleMode, GetStdHandle, SetConsoleMode, CONSOLE_MODE,
+            DISABLE_NEWLINE_AUTO_RETURN, ENABLE_ECHO_INPUT, ENABLE_EXTENDED_FLAGS,
+            ENABLE_INSERT_MODE, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT, ENABLE_PROCESSED_INPUT,
+            ENABLE_QUICK_EDIT_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT, STD_ERROR_HANDLE,
+            STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+        },
+        Threading::WaitForSingleObject,
+    },
 };
-use windows::Win32::System::Threading::{WaitForSingleObject, WAIT_OBJECT_0};
-use windows::Win32::{Foundation::HANDLE, System::Console::CONSOLE_MODE};
 
 use crate::error::Error;
 
@@ -26,9 +34,9 @@ impl Console {
         // We don't close these handle on drop because:
         //  It is not required to CloseHandle when done with the handle retrieved from GetStdHandle.
         //  The returned value is simply a copy of the value stored in the process table.
-        let stdin = unsafe { GetStdHandle(STD_INPUT_HANDLE) };
-        let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
-        let stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE) };
+        let stdin = unsafe { GetStdHandle(STD_INPUT_HANDLE)? };
+        let stdout = unsafe { GetStdHandle(STD_OUTPUT_HANDLE)? };
+        let stderr = unsafe { GetStdHandle(STD_ERROR_HANDLE)? };
 
         let stdin_mode = get_console_mode(stdin)?;
         let stdout_mode = get_console_mode(stdout)?;
@@ -86,7 +94,7 @@ impl Console {
     }
 }
 
-fn get_console_mode(h: HANDLE) -> win::Result<CONSOLE_MODE> {
+fn get_console_mode(h: HANDLE) -> WinResult<CONSOLE_MODE> {
     let mut mode = CONSOLE_MODE::default();
     unsafe {
         GetConsoleMode(h, &mut mode).ok()?;
@@ -94,7 +102,7 @@ fn get_console_mode(h: HANDLE) -> win::Result<CONSOLE_MODE> {
     Ok(mode)
 }
 
-fn set_raw_stdin(stdin: HANDLE, mut mode: CONSOLE_MODE) -> win::Result<()> {
+fn set_raw_stdin(stdin: HANDLE, mut mode: CONSOLE_MODE) -> WinResult<()> {
     mode &= !ENABLE_ECHO_INPUT;
     mode &= !ENABLE_LINE_INPUT;
     mode &= !ENABLE_MOUSE_INPUT;

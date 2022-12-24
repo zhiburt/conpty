@@ -9,7 +9,7 @@ use strip_ansi_escapes::strip;
 
 #[test]
 fn write_and_read() {
-    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = LineWriter::new(proc.input().unwrap());
     let mut reader = BufReader::new(proc.output().unwrap());
 
@@ -31,7 +31,7 @@ fn write_and_read() {
 
 #[test]
 fn write_ctrl_c() {
-    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
 
     thread::sleep(Duration::from_millis(600));
@@ -47,7 +47,7 @@ fn write_ctrl_c() {
 
 #[test]
 fn write_ctrl_z() {
-    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
 
     // send ^Z
@@ -62,7 +62,7 @@ fn write_ctrl_z() {
 
 #[test]
 fn read_until() {
-    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
     let mut reader = BufReader::new(proc.output().unwrap());
 
@@ -70,6 +70,7 @@ fn read_until() {
 
     let mut buf = Vec::new();
     reader.read_until(b' ', &mut buf).unwrap();
+
     assert_eq!(strip(&buf).unwrap(), b"Hello ");
 
     let mut buf = vec![0; 128];
@@ -79,7 +80,7 @@ fn read_until() {
 
 #[test]
 fn read_blocks_after_process_exit() {
-    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
     let mut reader = proc.output().unwrap();
 
@@ -106,7 +107,7 @@ fn read_blocks_after_process_exit() {
 
 #[test]
 fn read_blocks_after_process_exit_with_no_output() {
-    let proc = spawn(r"python .\tests\util\cat.py").unwrap();
+    let mut proc = spawn(r"python .\tests\util\cat.py").unwrap();
     let mut writer = proc.input().unwrap();
     let mut reader = proc.output().unwrap();
 
@@ -132,7 +133,7 @@ fn read_blocks_after_process_exit_with_no_output() {
 
 #[test]
 fn read_to_end_blocks_after_process_exit() {
-    let proc = spawn(r"echo 'Hello World'").unwrap();
+    let mut proc = spawn(r"echo 'Hello World'").unwrap();
 
     thread::sleep(Duration::from_millis(600));
 
