@@ -177,11 +177,9 @@ fn enableVirtualTerminalSequenceProcessing() -> win::Result<()> {
     Ok(())
 }
 
-fn createPseudoConsole() -> win::Result<(HPCON, HANDLE, HANDLE)> {
+fn createPseudoConsole(size: COORD) -> win::Result<(HPCON, HANDLE, HANDLE)> {
     let (pty_in, con_writer) = pipe()?;
     let (con_reader, pty_out) = pipe()?;
-
-    let size = inhirentConsoleSize()?;
 
     let console = unsafe { CreatePseudoConsole(size, pty_in, pty_out, 0)? };
 
@@ -393,8 +391,21 @@ fn console_stdout_set_echo(on: bool) -> Result<(), Error> {
 }
 
 fn spawn_command(command: Command) -> Result<Process, Error> {
-    enableVirtualTerminalSequenceProcessing()?;
-    let (mut console, output, input) = createPseudoConsole()?;
+    // A Windows Subsystem process (i.e. one with WinMain) will not have a STDOUT, STDERR or STDIN,
+    // unless it was specifically given one on launch.
+    // The assumption is that since it is a windows program you are interacting with it via Windows.
+    //
+    // https://stackoverflow.com/questions/5115569/c-win32-api-getstdhandlestd-output-handle-is-invalid-very-perplexing
+    //
+    // Because of this we are ignoring a error of VT sequence set and set a default size
+    //
+    // todo: It would be great to be able to identify whether a attribute #![windows_subsystem = "windows"] is set and ignore it only in such case
+    // But there's no way to do so?
+
+    let _ = enableVirtualTerminalSequenceProcessing();
+    let size = inhirentConsoleSize().unwrap_or(COORD { X: 80, Y: 25 });
+
+    let (mut console, output, input) = createPseudoConsole(size)?;
     let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
     let proc = execProc(command, startup_info)?;
     Ok(Process {
