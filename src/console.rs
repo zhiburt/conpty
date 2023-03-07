@@ -1,4 +1,4 @@
-#![allow(non_snake_case)]
+//! Module contains a handy functions for terminal.
 
 use windows::core::Result as WinResult;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
@@ -19,6 +19,7 @@ use windows::Win32::{
 use crate::error::Error;
 
 /// Console represents a terminal session with opened stdin, stdout and stderr.
+#[derive(Debug, Clone)]
 pub struct Console {
     stdin: HANDLE,
     stdout: HANDLE,
@@ -113,8 +114,8 @@ fn set_raw_stdin(stdin: HANDLE, mut mode: CONSOLE_MODE) -> WinResult<()> {
     mode |= ENABLE_INSERT_MODE;
     mode |= ENABLE_QUICK_EDIT_MODE;
 
-    let vtInputSupported = true;
-    if vtInputSupported {
+    let vt_input_supported = true;
+    if vt_input_supported {
         mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
     }
 

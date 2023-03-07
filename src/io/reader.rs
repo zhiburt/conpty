@@ -64,10 +64,10 @@ impl Drop for PipeReader {
     }
 }
 
-impl Into<std::fs::File> for PipeReader {
-    fn into(self) -> std::fs::File {
+impl From<PipeReader> for std::fs::File {
+    fn from(pipe: PipeReader) -> Self {
         use std::os::windows::io::FromRawHandle;
-        unsafe { std::fs::File::from_raw_handle(self.handle.0 as _) }
+        unsafe { std::fs::File::from_raw_handle(pipe.handle.0 as _) }
     }
 }
 

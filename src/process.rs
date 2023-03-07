@@ -144,7 +144,7 @@ impl Drop for Process {
             let _ = CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
-            let _ = Box::from_raw(self._proc_info.lpAttributeList.0 as _);
+            let _ = Box::from_raw(self._proc_info.lpAttributeList.0);
 
             let _ = CloseHandle(self.input);
             let _ = CloseHandle(self.output);
@@ -171,7 +171,7 @@ fn enableVirtualTerminalSequenceProcessing() -> win::Result<()> {
         mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING; // DISABLE_NEWLINE_AUTO_RETURN
         SetConsoleMode(stdout_h, mode).ok()?;
 
-        CloseHandle(stdout_h);
+        CloseHandle(stdout_h).ok()?;
     }
 
     Ok(())
@@ -187,10 +187,8 @@ fn createPseudoConsole(size: COORD) -> win::Result<(HPCON, HANDLE, HANDLE)> {
     // because the handles are dup'ed into the ConHost and will be released
     // when the ConPTY is destroyed.
     unsafe {
-        CloseHandle(pty_in);
-    }
-    unsafe {
-        CloseHandle(pty_out);
+        CloseHandle(pty_in).ok()?;
+        CloseHandle(pty_out).ok()?;
     }
 
     Ok((console, con_reader, con_writer))
@@ -201,7 +199,7 @@ fn inhirentConsoleSize() -> win::Result<COORD> {
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
     unsafe {
         GetConsoleScreenBufferInfo(stdout_h, &mut info).ok()?;
-        CloseHandle(stdout_h);
+        CloseHandle(stdout_h).ok()?;
     };
 
     let mut size = COORD { X: 24, Y: 80 };
@@ -330,7 +328,7 @@ fn stdout_handle() -> win::Result<HANDLE> {
 
     unsafe {
         CreateFileW(
-            Some(conout),
+            conout,
             FILE_GENERIC_READ | FILE_GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             None,
@@ -445,7 +443,7 @@ fn wait_process(proc: HANDLE, timeout_millis: Option<u32>) -> Result<u32, Error>
             }
         }
         None => {
-            unsafe { WaitForSingleObject(proc, INFINITE) };
+            unsafe { WaitForSingleObject(proc, INFINITE).ok()? };
         }
     }
 

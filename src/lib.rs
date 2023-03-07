@@ -16,6 +16,23 @@
 //!
 //! [ConPTY]: https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/
 
+#![warn(
+    missing_docs,
+    future_incompatible,
+    single_use_lifetimes,
+    trivial_casts,
+    trivial_numeric_casts,
+    unreachable_pub,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications,
+    unused_results,
+    unused_variables,
+    variant_size_differences,
+    missing_debug_implementations,
+    rust_2018_idioms
+)]
+
 use std::{
     ffi::{OsStr, OsString},
     process::Command,

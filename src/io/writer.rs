@@ -51,10 +51,10 @@ impl Drop for PipeWriter {
     }
 }
 
-impl Into<std::fs::File> for PipeWriter {
-    fn into(self) -> std::fs::File {
+impl From<PipeWriter> for std::fs::File {
+    fn from(pipe: PipeWriter) -> Self {
         use std::os::windows::io::FromRawHandle;
-        unsafe { std::fs::File::from_raw_handle(self.handle.0 as _) }
+        unsafe { std::fs::File::from_raw_handle(pipe.handle.0 as _) }
     }
 }
 

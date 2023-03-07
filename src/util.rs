@@ -7,7 +7,7 @@ use windows::Win32::{
 };
 
 /// clone_handle can be used to clone a general HANDLE.
-pub fn clone_handle(handle: HANDLE) -> win::Result<HANDLE> {
+pub(crate) fn clone_handle(handle: HANDLE) -> win::Result<HANDLE> {
     let mut cloned_handle = HANDLE::default();
     unsafe {
         DuplicateHandle(
@@ -27,5 +27,5 @@ pub fn clone_handle(handle: HANDLE) -> win::Result<HANDLE> {
 
 pub(crate) fn win_error_to_io(err: windows::core::Error) -> io::Error {
     let code = err.code();
-    io::Error::from_raw_os_error(code.0 as i32)
+    io::Error::from_raw_os_error(code.0)
 }

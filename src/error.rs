@@ -1,3 +1,5 @@
+//! Module contains a library error.
+
 use std::{fmt, time::Duration};
 
 use windows::core as win;

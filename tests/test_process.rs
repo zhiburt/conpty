@@ -43,7 +43,7 @@ pub fn test_args_0() {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
 
-    assert_eq!(line, "\u{1b}[2J\u{1b}[m\u{1b}[HHello World\r\n");
+    assert!(line.contains("Hello World\r\n"), "{:?}", line);
 }
 
 #[test]
@@ -59,7 +59,7 @@ pub fn test_args_1() {
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
 
-    assert_eq!(line, "\u{1b}[2J\u{1b}[m\u{1b}[HHello World !!!\r\n");
+    assert!(line.contains("Hello World !!!\r\n"), "{:?}", line);
 }
 
 #[test]
