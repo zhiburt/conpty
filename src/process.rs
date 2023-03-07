@@ -57,7 +57,6 @@ impl Process {
     /// Spawn a given command.
     ///
     /// ```ignore
-    /// # // todo: determine why this test timeouts if runnin as a doc test but not as an example/test.
     /// use std::io::prelude::*;
     /// use std::process::Command;
     /// use conpty::Process;
@@ -65,12 +64,13 @@ impl Process {
     /// let mut cmd = Command::new("cmd");
     /// cmd.args(&["/C", "echo Hello World"]);
     ///
-    /// let proc = Process::spawn(cmd).unwrap();
+    /// let mut proc = Process::spawn(cmd).unwrap();
     /// let mut reader = proc.output().unwrap();
     ///
     /// let mut buf = [0; 1028];
     /// let n = reader.read(&mut buf).unwrap();
-    /// assert!(String::from_utf8_lossy(&buf[..n]).contains("Hello World"));
+    ///
+    /// assert!(String::from_utf8_lossy(&buf).contains("Hello World"));
     /// ```
     pub fn spawn(command: Command) -> Result<Self, Error> {
         spawn_command(command)

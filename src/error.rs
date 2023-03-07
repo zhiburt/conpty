@@ -29,3 +29,15 @@ impl From<win::Error> for Error {
         Error::Win(err)
     }
 }
+
+impl From<Error> for std::io::Error {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Win(err) => std::io::Error::from(err),
+            Error::Timeout(time) => std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("timeout reached ({:?})", time),
+            ),
+        }
+    }
+}
