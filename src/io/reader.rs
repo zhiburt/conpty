@@ -67,6 +67,10 @@ impl Drop for PipeReader {
 impl From<PipeReader> for std::fs::File {
     fn from(pipe: PipeReader) -> Self {
         use std::os::windows::io::FromRawHandle;
+        // If we wouldn't wrap the reader in `ManuallyDrop` 
+        // the handle would be closed before the function 
+        // returned making the handle invalid.
+        let pipe = std::mem::ManuallyDrop::new(pipe);
         unsafe { std::fs::File::from_raw_handle(pipe.handle.0 as _) }
     }
 }
