@@ -73,7 +73,12 @@ impl Process {
     /// assert!(String::from_utf8_lossy(&buf).contains("Hello World"));
     /// ```
     pub fn spawn(command: Command) -> Result<Self, Error> {
-        spawn_command(command)
+        spawn_command(command, inhirentConsoleSize().ok())
+    }
+
+    /// Same as `spawn` but allows specification of initial size (x,y)
+    pub fn spawn_with_size(command: Command, size: Option<(i16, i16)>) -> Result<Self, Error> {
+        spawn_command(command, size.map(|(x,y)| COORD{X:x, Y:y}))
     }
 
     /// Returns a process's pid.
@@ -388,7 +393,7 @@ fn console_stdout_set_echo(on: bool) -> Result<(), Error> {
     Ok(())
 }
 
-fn spawn_command(command: Command) -> Result<Process, Error> {
+fn spawn_command(command: Command, size: Option<COORD>) -> Result<Process, Error> {
     // A Windows Subsystem process (i.e. one with WinMain) will not have a STDOUT, STDERR or STDIN,
     // unless it was specifically given one on launch.
     // The assumption is that since it is a windows program you are interacting with it via Windows.
@@ -401,7 +406,7 @@ fn spawn_command(command: Command) -> Result<Process, Error> {
     // But there's no way to do so?
 
     let _ = enableVirtualTerminalSequenceProcessing();
-    let size = inhirentConsoleSize().unwrap_or(COORD { X: 80, Y: 25 });
+    let size = size.unwrap_or(COORD { X: 80, Y: 25 });
 
     let (mut console, output, input) = createPseudoConsole(size)?;
     let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
