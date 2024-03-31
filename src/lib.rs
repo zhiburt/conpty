@@ -46,6 +46,7 @@ mod process;
 mod util;
 
 pub use process::Process;
+pub use process::ProcessOptions;
 
 /// Spawns a command using `cmd.exe`.
 pub fn spawn(command: impl AsRef<OsStr>) -> Result<Process, Error> {
