@@ -43,6 +43,31 @@ use crate::{
     util::clone_handle,
 };
 
+/// Options for spawning a new process inside of pseudo console.
+///
+/// To be used for customizing console. E.g. its size.
+#[derive(Debug, Default)]
+pub struct ProcessOptions {
+    /// specifies the size (x,y) of the new pseudo console window.
+    ///
+    /// if set to None, size is inherited from parent console or a
+    /// default value is used.
+    pub console_size: Option<(i16, i16)>,
+}
+
+impl ProcessOptions {
+    /// Spawns a new child process inside a new pseudo console.
+    ///
+    /// Uses options specified on `self`.
+    pub fn spawn(&self, command: Command) -> Result<Process, Error> {
+        let console_size = self
+            .console_size
+            .map(|(x, y)| COORD { X: x, Y: y })
+            .or_else(|| inhirentConsoleSize().ok());
+        spawn_command(command, console_size)
+    }
+}
+
 /// The structure is resposible for interations with spawned process.
 /// It handles IO and other operations related to a spawned process.
 pub struct Process {
@@ -73,7 +98,7 @@ impl Process {
     /// assert!(String::from_utf8_lossy(&buf).contains("Hello World"));
     /// ```
     pub fn spawn(command: Command) -> Result<Self, Error> {
-        spawn_command(command)
+        ProcessOptions::default().spawn(command)
     }
 
     /// Returns a process's pid.
@@ -388,7 +413,7 @@ fn console_stdout_set_echo(on: bool) -> Result<(), Error> {
     Ok(())
 }
 
-fn spawn_command(command: Command) -> Result<Process, Error> {
+fn spawn_command(command: Command, size: Option<COORD>) -> Result<Process, Error> {
     // A Windows Subsystem process (i.e. one with WinMain) will not have a STDOUT, STDERR or STDIN,
     // unless it was specifically given one on launch.
     // The assumption is that since it is a windows program you are interacting with it via Windows.
@@ -401,7 +426,7 @@ fn spawn_command(command: Command) -> Result<Process, Error> {
     // But there's no way to do so?
 
     let _ = enableVirtualTerminalSequenceProcessing();
-    let size = inhirentConsoleSize().unwrap_or(COORD { X: 80, Y: 25 });
+    let size = size.unwrap_or(COORD { X: 80, Y: 25 });
 
     let (mut console, output, input) = createPseudoConsole(size)?;
     let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
