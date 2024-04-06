@@ -48,11 +48,7 @@ use crate::{
 /// To be used for customizing console. E.g. its size.
 #[derive(Debug, Default)]
 pub struct ProcessOptions {
-    /// specifies the size (x,y) of the new pseudo console window.
-    ///
-    /// if set to None, size is inherited from parent console or a
-    /// default value is used.
-    pub console_size: Option<(i16, i16)>,
+    console_size: Option<COORD>,
 }
 
 impl ProcessOptions {
@@ -60,11 +56,18 @@ impl ProcessOptions {
     ///
     /// Uses options specified on `self`.
     pub fn spawn(&self, command: Command) -> Result<Process, Error> {
-        let console_size = self
-            .console_size
-            .map(|(x, y)| COORD { X: x, Y: y })
-            .or_else(|| inhirentConsoleSize().ok());
-        spawn_command(command, console_size)
+        spawn_command(command, self.console_size)
+    }
+
+    /// Specifies the size (x,y) of the new pseudo console window.
+    ///
+    /// if set to None, size is inherited from parent console or a
+    /// default value is used.
+    pub fn set_console_size(&mut self, size_xy: Option<(i16,i16)>) -> &mut Self {
+        let console_size = size_xy
+            .map(|(x, y)| COORD { X: x, Y: y });
+        self.console_size = console_size;
+        self
     }
 }
 
@@ -426,7 +429,7 @@ fn spawn_command(command: Command, size: Option<COORD>) -> Result<Process, Error
     // But there's no way to do so?
 
     let _ = enableVirtualTerminalSequenceProcessing();
-    let size = size.unwrap_or(COORD { X: 80, Y: 25 });
+    let size = size.or_else(|| inhirentConsoleSize().ok()).unwrap_or(COORD { X: 80, Y: 25 });
 
     let (mut console, output, input) = createPseudoConsole(size)?;
     let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
