@@ -9,10 +9,7 @@ use windows::Win32::{
     Storage::FileSystem::{FlushFileBuffers, WriteFile},
 };
 
-use crate::{
-    error::Error,
-    util::{clone_handle, win_error_to_io},
-};
+use crate::{error::Error, util::clone_handle};
 
 /// PipeWriter implements [std::io::Write] interface for win32 pipe.
 pub struct PipeWriter {
@@ -54,8 +51,8 @@ impl Drop for PipeWriter {
 impl From<PipeWriter> for std::fs::File {
     fn from(pipe: PipeWriter) -> Self {
         use std::os::windows::io::FromRawHandle;
-        // If we wouldn't wrap the writer in `ManuallyDrop` 
-        // the handle would be closed before the function 
+        // If we wouldn't wrap the writer in `ManuallyDrop`
+        // the handle would be closed before the function
         // returned making the handle invalid.
         let pipe = std::mem::ManuallyDrop::new(pipe);
         unsafe { std::fs::File::from_raw_handle(pipe.handle.0 as _) }
@@ -73,13 +70,9 @@ impl fmt::Debug for PipeWriter {
 
 fn write_to_pipe(h: HANDLE, buf: &[u8]) -> io::Result<usize> {
     let mut n = 0;
-    let buf_size = buf.len() as u32;
-    let buf_ptr = buf.as_ptr() as _;
 
     unsafe {
-        WriteFile(h, Some(buf_ptr), buf_size, Some(&mut n), None)
-            .ok()
-            .map_err(win_error_to_io)?;
+        WriteFile(h, Some(buf), Some(&mut n), None)?;
     }
 
     Ok(n as usize)
@@ -87,7 +80,7 @@ fn write_to_pipe(h: HANDLE, buf: &[u8]) -> io::Result<usize> {
 
 fn flush_pipe(h: HANDLE) -> Result<(), io::Error> {
     unsafe {
-        FlushFileBuffers(h).ok().map_err(win_error_to_io)?;
+        FlushFileBuffers(h)?;
     }
 
     Ok(())
