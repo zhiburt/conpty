@@ -12,10 +12,7 @@ use windows::Win32::{
     System::Pipes::PeekNamedPipe,
 };
 
-use crate::{
-    error::Error,
-    util::{clone_handle, win_error_to_io},
-};
+use crate::{error::Error, util::clone_handle};
 
 /// PipeReader wraps a win32 pipe to provide a [std::io::Read] interface.
 /// It also provides a non_blocking mode settings.
@@ -67,8 +64,8 @@ impl Drop for PipeReader {
 impl From<PipeReader> for std::fs::File {
     fn from(pipe: PipeReader) -> Self {
         use std::os::windows::io::FromRawHandle;
-        // If we wouldn't wrap the reader in `ManuallyDrop` 
-        // the handle would be closed before the function 
+        // If we wouldn't wrap the reader in `ManuallyDrop`
+        // the handle would be closed before the function
         // returned making the handle invalid.
         let pipe = std::mem::ManuallyDrop::new(pipe);
         unsafe { std::fs::File::from_raw_handle(pipe.handle.0 as _) }
@@ -89,9 +86,7 @@ fn pipe_available_bytes(h: HANDLE) -> io::Result<u32> {
     let bytes_ptr: *mut u32 = unsafe { ptr::addr_of_mut!(*bytes.as_mut_ptr()) };
 
     unsafe {
-        PeekNamedPipe(h, None, 0, None, Some(bytes_ptr), None)
-            .ok()
-            .map_err(win_error_to_io)?;
+        PeekNamedPipe(h, None, 0, None, Some(bytes_ptr), None)?;
     }
 
     let bytes = unsafe { bytes.assume_init() };
@@ -114,13 +109,9 @@ fn read_pipe(h: HANDLE, buf: &mut [u8], blocking: bool) -> io::Result<usize> {
 
 fn read_from_pipe(h: HANDLE, buf: &mut [u8]) -> io::Result<usize> {
     let mut n = 0;
-    let size = buf.len() as u32;
-    let buf = buf.as_mut_ptr() as _;
 
     unsafe {
-        ReadFile(h, Some(buf), size, Some(&mut n), None)
-            .ok()
-            .map_err(win_error_to_io)?;
+        ReadFile(h, Some(buf), Some(&mut n), None)?;
     }
 
     Ok(n as usize)
