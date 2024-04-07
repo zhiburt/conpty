@@ -13,7 +13,7 @@ use std::{
 use windows::{
     core::{self as win, HRESULT, PCWSTR, PWSTR},
     Win32::{
-        Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT},
+        Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT},
         Storage::FileSystem::{
             CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
             FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
@@ -31,9 +31,9 @@ use windows::{
                 InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
                 WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
                 LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
-                STARTUPINFOEXW,
+                STARTUPINFOEXW, INFINITE
+
             },
-            WindowsProgramming::INFINITE,
         },
     },
 };
@@ -49,11 +49,7 @@ use crate::{
 /// To be used for customizing console. E.g. its size.
 #[derive(Debug, Default)]
 pub struct ProcessOptions {
-    /// specifies the size (x,y) of the new pseudo console window.
-    ///
-    /// if set to None, size is inherited from parent console or a
-    /// default value is used.
-    pub console_size: Option<(i16, i16)>,
+    console_size: Option<COORD>,
 }
 
 impl ProcessOptions {
@@ -61,11 +57,18 @@ impl ProcessOptions {
     ///
     /// Uses options specified on `self`.
     pub fn spawn(&self, command: Command) -> Result<Process, Error> {
-        let console_size = self
-            .console_size
-            .map(|(x, y)| COORD { X: x, Y: y })
-            .or_else(|| inhirentConsoleSize().ok());
-        spawn_command(command, console_size)
+        spawn_command(command, self.console_size)
+    }
+
+    /// Specifies the size (x,y) of the new pseudo console window.
+    ///
+    /// if set to None, size is inherited from parent console or a
+    /// default value is used.
+    pub fn set_console_size(&mut self, size_xy: Option<(i16,i16)>) -> &mut Self {
+        let console_size = size_xy
+            .map(|(x, y)| COORD { X: x, Y: y });
+        self.console_size = console_size;
+        self
     }
 }
 
@@ -193,11 +196,11 @@ fn enableVirtualTerminalSequenceProcessing() -> win::Result<()> {
     let stdout_h = stdout_handle()?;
     unsafe {
         let mut mode = CONSOLE_MODE::default();
-        GetConsoleMode(stdout_h, &mut mode).ok()?;
+        GetConsoleMode(stdout_h, &mut mode)?;
         mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING; // DISABLE_NEWLINE_AUTO_RETURN
-        SetConsoleMode(stdout_h, mode).ok()?;
+        SetConsoleMode(stdout_h, mode)?;
 
-        CloseHandle(stdout_h).ok()?;
+        CloseHandle(stdout_h)?;
     }
 
     Ok(())
@@ -213,8 +216,8 @@ fn createPseudoConsole(size: COORD) -> win::Result<(HPCON, HANDLE, HANDLE)> {
     // because the handles are dup'ed into the ConHost and will be released
     // when the ConPTY is destroyed.
     unsafe {
-        CloseHandle(pty_in).ok()?;
-        CloseHandle(pty_out).ok()?;
+        CloseHandle(pty_in)?;
+        CloseHandle(pty_out)?;
     }
 
     Ok((console, con_reader, con_writer))
@@ -224,8 +227,8 @@ fn inhirentConsoleSize() -> win::Result<COORD> {
     let stdout_h = stdout_handle()?;
     let mut info = CONSOLE_SCREEN_BUFFER_INFO::default();
     unsafe {
-        GetConsoleScreenBufferInfo(stdout_h, &mut info).ok()?;
-        CloseHandle(stdout_h).ok()?;
+        GetConsoleScreenBufferInfo(stdout_h, &mut info)?;
+        CloseHandle(stdout_h)?;
     };
 
     let mut size = COORD { X: 24, Y: 80 };
@@ -253,10 +256,11 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
     let res = unsafe {
         InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut()), 1, 0, &mut size)
     };
-    if res.as_bool() || size == 0 {
+    if res.is_ok() /* according to the documentation this initial call must fail! */ || size == 0 {
+        // https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-initializeprocthreadattributelist#return-value
         return Err(win::Error::new(
             HRESULT::default(),
-            "failed initialize proc attribute list".into(),
+            "failed initialize proc attribute list",
         ));
     }
 
@@ -269,7 +273,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
     siEx.lpAttributeList = LPPROC_THREAD_ATTRIBUTE_LIST(lpAttributeList.as_mut_ptr() as _);
 
     unsafe {
-        InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &mut size).ok()?;
+        InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &mut size)?;
         UpdateProcThreadAttribute(
             siEx.lpAttributeList,
             0,
@@ -278,8 +282,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
             size_of::<HPCON>(),
             None,
             None,
-        )
-        .ok()?;
+        )?;
     }
 
     Ok(siEx)
@@ -323,8 +326,7 @@ fn execProc(command: Command, startup_info: STARTUPINFOEXW) -> win::Result<PROCE
             current_dir,
             &startup_info.StartupInfo,
             &mut proc_info,
-        )
-        .ok()?
+        )?
     };
 
     Ok(proc_info)
@@ -345,7 +347,7 @@ fn build_commandline(command: &Command) -> OsString {
 fn pipe() -> win::Result<(HANDLE, HANDLE)> {
     let mut p_in = HANDLE::default();
     let mut p_out = HANDLE::default();
-    unsafe { CreatePipe(&mut p_in, &mut p_out, None, 0).ok()? };
+    unsafe { CreatePipe(&mut p_in, &mut p_out, None, 0)? };
 
     Ok((p_in, p_out))
 }
@@ -362,7 +364,7 @@ fn stdout_handle() -> win::Result<HANDLE> {
     unsafe {
         CreateFileW(
             conout,
-            FILE_GENERIC_READ | FILE_GENERIC_WRITE,
+            (FILE_GENERIC_READ | FILE_GENERIC_WRITE).0,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             None,
             OPEN_EXISTING,
@@ -406,7 +408,7 @@ fn console_stdout_set_echo(on: bool) -> Result<(), Error> {
     let stdout_h = stdout_handle()?;
 
     let mut mode = CONSOLE_MODE::default();
-    unsafe { GetConsoleMode(stdout_h, &mut mode).ok()? };
+    unsafe { GetConsoleMode(stdout_h, &mut mode)? };
 
     match on {
         true => mode |= ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT,
@@ -414,8 +416,8 @@ fn console_stdout_set_echo(on: bool) -> Result<(), Error> {
     };
 
     unsafe {
-        SetConsoleMode(stdout_h, mode).ok()?;
-        CloseHandle(stdout_h).ok()?;
+        SetConsoleMode(stdout_h, mode)?;
+        CloseHandle(stdout_h)?;
     }
 
     Ok(())
@@ -434,7 +436,7 @@ fn spawn_command(command: Command, size: Option<COORD>) -> Result<Process, Error
     // But there's no way to do so?
 
     let _ = enableVirtualTerminalSequenceProcessing();
-    let size = size.unwrap_or(COORD { X: 80, Y: 25 });
+    let size = size.or_else(|| inhirentConsoleSize().ok()).unwrap_or(COORD { X: 80, Y: 25 });
 
     let (mut console, output, input) = createPseudoConsole(size)?;
     let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
@@ -458,7 +460,7 @@ fn get_process_pid(proc: HANDLE) -> u32 {
 }
 
 fn kill_process(proc: HANDLE, code: u32) -> Result<(), Error> {
-    unsafe { TerminateProcess(proc, code).ok()? };
+    unsafe { TerminateProcess(proc, code)? };
     Ok(())
 }
 
@@ -475,14 +477,15 @@ fn wait_process(proc: HANDLE, timeout_millis: Option<u32>) -> Result<u32, Error>
                 return Err(Error::Timeout(Duration::from_millis(timeout as u64)));
             }
         }
-        None => {
-            unsafe { WaitForSingleObject(proc, INFINITE).ok()? };
-        }
+        None => match unsafe { WaitForSingleObject(proc, INFINITE) } {
+            WAIT_OBJECT_0 => {}
+            event_id => return Err(Error::WaitFailed(event_id)),
+        },
     }
 
     let mut code = 0;
     unsafe {
-        GetExitCodeProcess(proc, &mut code).ok()?;
+        GetExitCodeProcess(proc, &mut code)?;
     }
 
     Ok(code)

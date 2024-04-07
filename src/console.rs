@@ -59,10 +59,10 @@ impl Console {
         set_raw_stdin(self.stdin, self.stdin_mode)?;
 
         unsafe {
-            SetConsoleMode(self.stdout, self.stdout_mode | DISABLE_NEWLINE_AUTO_RETURN).ok()?;
+            SetConsoleMode(self.stdout, self.stdout_mode | DISABLE_NEWLINE_AUTO_RETURN)?;
         }
         unsafe {
-            SetConsoleMode(self.stderr, self.stderr_mode | DISABLE_NEWLINE_AUTO_RETURN).ok()?;
+            SetConsoleMode(self.stderr, self.stderr_mode | DISABLE_NEWLINE_AUTO_RETURN)?;
         }
 
         Ok(())
@@ -71,7 +71,7 @@ impl Console {
     /// Sets terminal in a mode which was initially used on handles.
     pub fn reset(&self) -> Result<(), Error> {
         for (handle, mode) in self.streams() {
-            unsafe { SetConsoleMode(handle, mode).ok()? };
+            unsafe { SetConsoleMode(handle, mode)? };
         }
 
         Ok(())
@@ -98,7 +98,7 @@ impl Console {
 fn get_console_mode(h: HANDLE) -> WinResult<CONSOLE_MODE> {
     let mut mode = CONSOLE_MODE::default();
     unsafe {
-        GetConsoleMode(h, &mut mode).ok()?;
+        GetConsoleMode(h, &mut mode)?;
     }
     Ok(mode)
 }
@@ -120,7 +120,7 @@ fn set_raw_stdin(stdin: HANDLE, mut mode: CONSOLE_MODE) -> WinResult<()> {
     }
 
     unsafe {
-        SetConsoleMode(stdin, mode).ok()?;
+        SetConsoleMode(stdin, mode)?;
     }
 
     Ok(())
