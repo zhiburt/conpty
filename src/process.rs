@@ -30,7 +30,8 @@ use windows::{
                 CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
                 InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
                 WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-                LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTUPINFOEXW,
+                LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
+                STARTUPINFOEXW,
             },
             WindowsProgramming::INFINITE,
         },
@@ -240,6 +241,13 @@ const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;
 fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUPINFOEXW> {
     let mut siEx = STARTUPINFOEXW::default();
     siEx.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+
+    // avoid issues when debugging or using cargo-nextest.
+    // solution described here: https://github.com/microsoft/terminal/issues/4380#issuecomment-580865346
+    siEx.StartupInfo.hStdInput.0 = 0;
+    siEx.StartupInfo.hStdOutput.0 = 0;
+    siEx.StartupInfo.hStdError.0 = 0;
+    siEx.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
 
     let mut size: usize = 0;
     let res = unsafe {
