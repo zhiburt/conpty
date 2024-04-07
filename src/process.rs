@@ -30,9 +30,8 @@ use windows::{
                 CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess, GetProcessId,
                 InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
                 WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
-                LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
-                STARTUPINFOEXW, INFINITE
-
+                INFINITE, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION, STARTF_USESTDHANDLES,
+                STARTUPINFOEXW,
             },
         },
     },
@@ -64,9 +63,8 @@ impl ProcessOptions {
     ///
     /// if set to None, size is inherited from parent console or a
     /// default value is used.
-    pub fn set_console_size(&mut self, size_xy: Option<(i16,i16)>) -> &mut Self {
-        let console_size = size_xy
-            .map(|(x, y)| COORD { X: x, Y: y });
+    pub fn set_console_size(&mut self, size_xy: Option<(i16, i16)>) -> &mut Self {
+        let console_size = size_xy.map(|(x, y)| COORD { X: x, Y: y });
         self.console_size = console_size;
         self
     }
@@ -173,7 +171,7 @@ impl Drop for Process {
             let _ = CloseHandle(self._proc.hThread);
 
             DeleteProcThreadAttributeList(self._proc_info.lpAttributeList);
-            let _ = Box::from_raw(self._proc_info.lpAttributeList.0);
+            let _: Box<u8> = Box::from_raw(self._proc_info.lpAttributeList.0 as *mut u8);
 
             let _ = CloseHandle(self.input);
             let _ = CloseHandle(self.output);
@@ -436,7 +434,9 @@ fn spawn_command(command: Command, size: Option<COORD>) -> Result<Process, Error
     // But there's no way to do so?
 
     let _ = enableVirtualTerminalSequenceProcessing();
-    let size = size.or_else(|| inhirentConsoleSize().ok()).unwrap_or(COORD { X: 80, Y: 25 });
+    let size = size
+        .or_else(|| inhirentConsoleSize().ok())
+        .unwrap_or(COORD { X: 80, Y: 25 });
 
     let (mut console, output, input) = createPseudoConsole(size)?;
     let startup_info = initializeStartupInfoAttachedToConPTY(&mut console)?;
