@@ -81,6 +81,9 @@ impl fmt::Debug for PipeReader {
     }
 }
 
+unsafe impl Send for PipeReader {}
+unsafe impl Sync for PipeReader {}
+
 fn pipe_available_bytes(h: HANDLE) -> io::Result<u32> {
     let mut bytes = MaybeUninit::<u32>::uninit();
     let bytes_ptr: *mut u32 = unsafe { ptr::addr_of_mut!(*bytes.as_mut_ptr()) };
