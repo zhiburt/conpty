@@ -190,6 +190,9 @@ impl fmt::Debug for Process {
     }
 }
 
+unsafe impl Send for Process {}
+unsafe impl Sync for Process {}
+
 fn enableVirtualTerminalSequenceProcessing() -> win::Result<()> {
     let stdout_h = stdout_handle()?;
     unsafe {

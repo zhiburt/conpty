@@ -61,12 +61,15 @@ impl From<PipeWriter> for std::fs::File {
 
 impl fmt::Debug for PipeWriter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PipeReader")
+        f.debug_struct("PipeWriter")
             .field("handle", &(self.handle.0))
             .field("handle(ptr)", &(self.handle.0 as *const c_void))
             .finish()
     }
 }
+
+unsafe impl Send for PipeWriter {}
+unsafe impl Sync for PipeWriter {}
 
 fn write_to_pipe(h: HANDLE, buf: &[u8]) -> io::Result<usize> {
     let mut n = 0;
