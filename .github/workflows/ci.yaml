@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  rustfmt:
+    name: Rust format
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install nightly --profile minimal -c rustfmt
+
+      - run: cargo +nightly fmt -- --check
+
+  rust:
+    name: Rust lint and test
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: rustup toolchain install stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test
+
+      # Unfortunately this code currently triggers a couple Clippy lints at the
+      # warn and error level, so the following line is commented out.
+      #
+      # - run: cargo clippy --all-targets -- -D warnings
