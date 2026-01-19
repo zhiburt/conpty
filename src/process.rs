@@ -248,14 +248,19 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
 
     // avoid issues when debugging or using cargo-nextest.
     // solution described here: https://github.com/microsoft/terminal/issues/4380#issuecomment-580865346
-    siEx.StartupInfo.hStdInput.0 = 0;
-    siEx.StartupInfo.hStdOutput.0 = 0;
-    siEx.StartupInfo.hStdError.0 = 0;
+    siEx.StartupInfo.hStdInput.0 = null_mut();
+    siEx.StartupInfo.hStdOutput.0 = null_mut();
+    siEx.StartupInfo.hStdError.0 = null_mut();
     siEx.StartupInfo.dwFlags |= STARTF_USESTDHANDLES;
 
     let mut size: usize = 0;
     let res = unsafe {
-        InitializeProcThreadAttributeList(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut()), 1, 0, &mut size)
+        InitializeProcThreadAttributeList(
+            Some(LPPROC_THREAD_ATTRIBUTE_LIST(null_mut())),
+            1,
+            Some(0),
+            &mut size,
+        )
     };
     if res.is_ok() /* according to the documentation this initial call must fail! */ || size == 0 {
         // https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-initializeprocthreadattributelist#return-value
@@ -274,7 +279,7 @@ fn initializeStartupInfoAttachedToConPTY(hPC: &mut HPCON) -> win::Result<STARTUP
     siEx.lpAttributeList = LPPROC_THREAD_ATTRIBUTE_LIST(lpAttributeList.as_mut_ptr() as _);
 
     unsafe {
-        InitializeProcThreadAttributeList(siEx.lpAttributeList, 1, 0, &mut size)?;
+        InitializeProcThreadAttributeList(Some(siEx.lpAttributeList), 1, Some(0), &mut size)?;
         UpdateProcThreadAttribute(
             siEx.lpAttributeList,
             0,
@@ -318,7 +323,7 @@ fn execProc(command: Command, startup_info: STARTUPINFOEXW) -> win::Result<PROCE
     unsafe {
         CreateProcessW(
             appname,
-            commandline,
+            Some(commandline),
             None,
             None,
             false,
@@ -370,7 +375,7 @@ fn stdout_handle() -> win::Result<HANDLE> {
             None,
             OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL,
-            HANDLE::default(),
+            Some(HANDLE::default()),
         )
     }
 }

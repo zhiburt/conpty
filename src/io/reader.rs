@@ -86,7 +86,7 @@ unsafe impl Sync for PipeReader {}
 
 fn pipe_available_bytes(h: HANDLE) -> io::Result<u32> {
     let mut bytes = MaybeUninit::<u32>::uninit();
-    let bytes_ptr: *mut u32 = unsafe { ptr::addr_of_mut!(*bytes.as_mut_ptr()) };
+    let bytes_ptr: *mut u32 = ptr::addr_of_mut!(bytes).cast();
 
     unsafe {
         PeekNamedPipe(h, None, 0, None, Some(bytes_ptr), None)?;
